@@ -177,13 +177,15 @@ type Player struct {
 	Suspension uint8  // matches remaining suspended
 
 	// Season-to-date tallies, reset each new season.
-	Apps       uint16
-	Goals      uint16
-	Assists    uint16
-	MinutesSum uint32
-	Yellows    uint8
-	Reds       uint8
-	RatingSum  uint32 // sum of match ratings * 100, divided by Apps for average
+	Apps        uint16
+	Goals       uint16
+	Penalties   uint16 // goals from the spot, counted within Goals
+	Assists     uint16
+	CleanSheets uint16 // goalkeeping only; see match.PlayerLine
+	MinutesSum  uint32
+	Yellows     uint8
+	Reds        uint8
+	RatingSum   uint32 // sum of match ratings * 100, divided by Apps for average
 }
 
 // Primary returns the player's best position.

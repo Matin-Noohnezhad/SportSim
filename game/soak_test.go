@@ -178,11 +178,19 @@ func TestSeasonCalibration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var goals, matches, homeWins, draws int
+	var goals, matches, homeWins, draws, penalties, assisted int
 	for g.Sched.Remaining() > 0 {
 		for _, f := range g.AdvanceDay().Results {
 			matches++
 			goals += int(f.HomeGoals) + int(f.AwayGoals)
+			for _, gl := range f.Goals {
+				if gl.Penalty {
+					penalties++
+				}
+				if gl.Assist != 0 {
+					assisted++
+				}
+			}
 			switch {
 			case f.HomeGoals > f.AwayGoals:
 				homeWins++
@@ -194,6 +202,16 @@ func TestSeasonCalibration(t *testing.T) {
 	n := float64(matches)
 	t.Logf("%d matches: %.2f goals, %.1f%% home wins, %.1f%% draws",
 		matches, float64(goals)/n, 100*float64(homeWins)/n, 100*float64(draws)/n)
+	t.Logf("  %.2f penalties per match (%.1f%% of goals), %.1f%% of goals assisted",
+		float64(penalties)/n, 100*float64(penalties)/float64(goals),
+		100*float64(assisted)/float64(goals))
+
+	// A penalty is worth nearly ten open chances, so getting their frequency
+	// wrong is not a rounding error: it moves both the scoring rate and who
+	// scores, since spot kicks go to one nominated taker.
+	if ps := 100 * float64(penalties) / float64(goals); ps < 6 || ps > 14 {
+		t.Errorf("penalties are %.1f%% of goals, want 6-14%% (real ~9%%)", ps)
+	}
 
 	if gpm := float64(goals) / n; gpm < 2.50 || gpm > 3.00 {
 		t.Errorf("goals/match = %.2f, want 2.50-3.00 (real ~2.75)", gpm)
@@ -221,8 +239,11 @@ func TestSeasonCalibration(t *testing.T) {
 		nt, nb := float64(top)*scale, float64(bottom)*scale
 		t.Logf("  %-16s %3d..%3d pts over %d games — champion %s",
 			l.Name, top, bottom, played, g.World.ClubName(rows[0].ClubID))
-		if nt < 68 || nt > 105 {
-			t.Errorf("%s champion on %.0f pts (38-game equivalent), want 68-105", l.Name, nt)
+		// The upper bound is generous because normalising a short season
+		// exaggerates a dominant club: the Süper Lig's 34 games scale up by a
+		// ninth, and Galatasaray are far stronger than anyone they face.
+		if nt < 68 || nt > 110 {
+			t.Errorf("%s champion on %.0f pts (38-game equivalent), want 68-110", l.Name, nt)
 		}
 		if nb < 8 || nb > 45 {
 			t.Errorf("%s bottom club on %.0f pts (38-game equivalent), want 8-45", l.Name, nb)

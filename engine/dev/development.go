@@ -210,29 +210,48 @@ func Daily(r *rng.R, p *model.Player, played bool) {
 	}
 }
 
+// Performance is what one player did in one match. It mirrors the match
+// engine's player line without this package having to know about the engine,
+// which is the caller's job to translate.
+type Performance struct {
+	Minutes    int
+	Goals      uint8
+	Penalties  uint8 // goals from the spot, counted within Goals
+	Assists    uint8
+	CleanSheet bool
+	Rating     float64
+	Yellow     bool
+	Red        bool
+	Injury     uint16 // days out, 0 if uninjured
+}
+
 // AfterMatch folds a match performance into a player's season tallies, form and
 // morale.
-func AfterMatch(p *model.Player, minutes int, goals, assists uint8, rating float64, yellow, red bool, injury uint16) {
-	if minutes > 0 {
+func AfterMatch(p *model.Player, perf Performance) {
+	if perf.Minutes > 0 {
 		p.Apps++
-		p.MinutesSum += uint32(minutes)
-		p.RatingSum += uint32(math.Round(rating * 100))
+		p.MinutesSum += uint32(perf.Minutes)
+		p.RatingSum += uint32(math.Round(perf.Rating * 100))
 	}
-	p.Goals += uint16(goals)
-	p.Assists += uint16(assists)
-	if yellow {
+	p.Goals += uint16(perf.Goals)
+	p.Penalties += uint16(perf.Penalties)
+	p.Assists += uint16(perf.Assists)
+	if perf.CleanSheet {
+		p.CleanSheets++
+	}
+	if perf.Yellow {
 		p.Yellows++
 	}
-	if red {
+	if perf.Red {
 		p.Reds++
 		p.Suspension += 2
 	}
 	// Every fifth booking in a season carries a one-match ban.
-	if yellow && p.Yellows%5 == 0 {
+	if perf.Yellow && p.Yellows%5 == 0 {
 		p.Suspension++
 	}
-	if injury > 0 {
-		p.InjuryDays = injury
+	if perf.Injury > 0 {
+		p.InjuryDays = perf.Injury
 		p.Morale = down(p.Morale, 12)
 	}
 
@@ -242,8 +261,8 @@ func AfterMatch(p *model.Player, minutes int, goals, assists uint8, rating float
 	// it saturates at its bounds within a dozen games and becomes a permanent
 	// bonus for good teams and a permanent penalty for bad ones, which pulls
 	// league tables and goal counts far apart.
-	if minutes >= 20 {
-		delta := (rating - 6.7) * 1.9
+	if perf.Minutes >= 20 {
+		delta := (perf.Rating - 6.7) * 1.9
 		f := float64(p.Form)*0.72 + delta
 		if f > 10 {
 			f = 10
@@ -254,11 +273,11 @@ func AfterMatch(p *model.Player, minutes int, goals, assists uint8, rating float
 		p.Form = int8(math.Round(f))
 
 		switch {
-		case rating >= 8:
+		case perf.Rating >= 8:
 			p.Morale = up(p.Morale, 6)
-		case rating >= 7:
+		case perf.Rating >= 7:
 			p.Morale = up(p.Morale, 2)
-		case rating < 5.5:
+		case perf.Rating < 5.5:
 			p.Morale = down(p.Morale, 4)
 		}
 	}

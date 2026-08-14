@@ -76,11 +76,20 @@ func Generate(w *model.World, year int, r *rng.R) *Schedule {
 		dates := matchdays(start, end, len(rounds)*2)
 
 		for half := 0; half < 2; half++ {
-			for ri, pairs := range rounds {
+			for ri := range rounds {
 				idx := half*len(rounds) + ri
+				// The second half replays every round with the venues reversed,
+				// shifted on by one round. Replaying them in the same order would
+				// leave most clubs with the same venue either side of the halfway
+				// point, and that break next to the one break each club already
+				// carries is what produces a run of three; the shift moves the
+				// two apart. See TestVenueAlternation.
+				pairs := rounds[ri]
+				if half == 1 {
+					pairs = rounds[(ri+1)%len(rounds)]
+				}
 				for _, p := range pairs {
 					home, away := p[0], p[1]
-					// Reverse the fixture in the second half of the season.
 					if half == 1 {
 						home, away = away, home
 					}
@@ -103,38 +112,56 @@ func Generate(w *model.World, year int, r *rng.R) *Schedule {
 }
 
 // roundRobin pairs every club with every other exactly once, using the circle
-// method. Home and away are alternated between rounds so no club is given a
-// lopsided run of home games.
+// method: the last club stands still while the rest rotate around it, so in
+// round rd the stationary club meets list[rd] and the others pair off either
+// side of it.
+//
+// Venues come from the canonical assignment rather than from anything about the
+// clubs themselves, because it is the only one that keeps every club close to
+// strict home-away alternation. A club's opponent distance from the pivot,
+// (club - rd) mod m, falls by one every round, so alternating on the parity of
+// that distance alternates the venue too. The parity can only fail to alternate
+// on the round in which the club meets the stationary one, which gives each club
+// exactly one back-to-back pair per single round-robin and none at all in an
+// odd-sized league, where that round is its bye.
 func roundRobin(clubs []uint16) [][][2]uint16 {
-	n := len(clubs)
 	list := append([]uint16(nil), clubs...)
-	// A bye (club 0) lets the circle method handle odd-sized leagues.
-	if n%2 == 1 {
+	// A bye (club 0) lets the circle method handle odd-sized leagues. Standing
+	// it still means the bye is what absorbs each club's one venue repeat.
+	if len(list)%2 == 1 {
 		list = append(list, 0)
-		n++
 	}
+	n := len(list)
+	m := n - 1 // clubs that rotate; list[m] stands still
 
-	rounds := make([][][2]uint16, 0, n-1)
-	for rd := 0; rd < n-1; rd++ {
+	rounds := make([][][2]uint16, 0, m)
+	for rd := 0; rd < m; rd++ {
 		pairs := make([][2]uint16, 0, n/2)
-		for i := 0; i < n/2; i++ {
-			a, b := list[i], list[n-1-i]
-			if a == 0 || b == 0 {
-				continue // the club drawn against the bye does not play
+		add := func(home, away uint16) {
+			if home == 0 || away == 0 {
+				return // the club drawn against the bye does not play
 			}
-			// Alternating avoids one club always being at home in early rounds.
-			if (rd+i)%2 == 0 {
-				pairs = append(pairs, [2]uint16{a, b})
+			pairs = append(pairs, [2]uint16{home, away})
+		}
+
+		// The stationary club has no distance to alternate on, so it simply
+		// swaps venue every round and never repeats one.
+		if rd%2 == 0 {
+			add(list[m], list[rd])
+		} else {
+			add(list[rd], list[m])
+		}
+		for j := 1; j <= (m-1)/2; j++ {
+			near, far := list[(rd+j)%m], list[(rd-j+m)%m]
+			// m is odd, so exactly one of j and m-j is odd and the two clubs
+			// always agree on which of them is at home.
+			if j%2 == 1 {
+				add(near, far)
 			} else {
-				pairs = append(pairs, [2]uint16{b, a})
+				add(far, near)
 			}
 		}
 		rounds = append(rounds, pairs)
-
-		// Rotate all but the first entry.
-		last := list[n-1]
-		copy(list[2:], list[1:n-1])
-		list[1] = last
 	}
 	return rounds
 }

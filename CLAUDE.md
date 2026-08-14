@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git
+
+**Never run `git commit` or `git push` unless the user has explicitly asked for it in that message.**
+Finish the work, leave the changes in the working tree, and say what is ready to be committed — the
+decision to record or publish a change is the user's, every time. This is not satisfied by permission
+given for an earlier commit: authorisation covers the one commit it was given for and does not carry
+forward to the next change, however small or obviously correct that change seems.
+
+Staging (`git add`) is included in this — leave the working tree as the user left it. Read-only
+commands (`git status`, `git diff`, `git log`) are always fine.
+
 ## Commands
 
 ```sh
@@ -42,18 +53,37 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
 
 - **`game`** is the façade every frontend calls. It owns `Game{World, Sched, Inbox, rng}` and exposes
   manager actions (`Bid`, `Sell`, `SetFormation`, `SwapLineup`, `AutoSelect`, `OfferContract`) and
-  queries (`Squad`, `Table`, `TopScorers`, `Search`) as plain methods over plain serialisable structs.
+  queries (`Squad`, `Table`, `Stats`, `Search`) as plain methods over plain serialisable structs.
+  `game/stats.go` compiles the season's charts — scorers, assists, clean sheets, ratings, cards —
+  and the division's aggregate summary; a chart is a filter, a sort and a truncation over one pass
+  of the players, so adding one is a call to `topBy`, not a new query.
   `AdvanceDay()` is the heartbeat: it plays the day's fixtures, applies recovery, pays wages on
   Mondays, trains on the 1st of the month, runs the AI market, then moves the clock. **A second
   frontend (HTTP, mobile) is a new package beside `ui/tui`, not a rewrite — so nothing that belongs
   to the simulation may leak into a UI package, and nothing terminal-shaped may leak into `game`.**
+  `KickOff()` (in `game/live.go`) is the one place that breaks the once-a-day rhythm: it hands back a
+  `LiveMatch` for the managed club's fixture and *holds the rest of the day back* until `AdvanceDay`
+  is called. A frontend that calls `KickOff` owes an `AdvanceDay`; one that never calls it sees no
+  change at all, because `playFixture` opens a `LiveMatch` for every fixture either way and
+  `PlayOut` finishes whatever the manager left. A part-played match is deliberately absent from save
+  files — `Game.MatchInProgress()` reports it, and a frontend must refuse to save while it is true,
+  since those players have already been run down by the minutes played.
 - **`engine/model`** holds the data types with no behaviour beyond derivation: `World`, `Player`,
   `Club`, `League`, `Nation`, `Tactics`, `Formation`, `Pos`, `Date`.
-- **`engine/match`** simulates a match; **`engine/season`** owns calendar, tables and rollover;
+- **`engine/match`** simulates a match: `sim.go` holds the tuning constants and the per-incident
+  mechanics, `live.go` owns the clock (`Live`, and the touchline actions `Substitute`, `SetTactics`,
+  `TakeCharge`), `side.go` turns a squad into eleven players and a strength. **New match logic goes in
+  `Live.playMinute`, never in a caller** — a second minute loop is the one thing invariant 6 forbids.
+  **`engine/season`** owns calendar, tables and rollover;
   **`engine/dev`** owns growth/decline/fitness/morale/valuation; **`engine/transfer`** owns pricing,
   negotiation and the AI market; **`engine/rng`** is the single random source.
 - **`ui/tui`** is Bubble Tea: `Model` in `app.go` (state + key handling), rendering in `view.go`,
-  the match feed in `match.go`, Lip Gloss styles in `styles.go`.
+  the match feed and touchline panels in `match.go`, Lip Gloss styles in `styles.go`. `ScreenMatch`
+  intercepts keys *before* the global bindings, because from the touchline `s` and `t` are the
+  substitution and shape panels rather than the squad and tactics screens. `ScreenTable` and
+  `ScreenStats` are two views of one division and share `keyTable`, with `tab` between them; the
+  charts sit two abreast on a wide terminal and stack on a narrow one, which is why `statRows` is
+  told how many rows of them there will be.
 - **`store`** gob-encodes and gzips a `snapshot` of world + schedule + inbox + RNG state.
 
 ### Invariants that hold the design together
@@ -82,22 +112,70 @@ few simulated seasons.
    order are written into save files and `assets/world.dat`. Insert a value in the middle and every
    existing save silently misreads. Append, and bump `store.formatVersion` / `pack.version` when the
    layout itself changes.
-6. **One engine, two presentations.** A match is fully simulated at kickoff and produces a complete
-   event stream; "watching" it minute by minute only reveals events already decided. Never add a
-   separate quick-result path — the two could then disagree.
+6. **One engine, however a match is played.** `match.Sim` *is* `match.Begin` followed by
+   `Live.PlayOut` — there is no second code path, and there must never be one. A match resolved
+   instantly, one revealed minute by minute, and one managed from the touchline all run the same
+   per-minute loop in `Live.playMinute`. Two things keep that honest and both are load-bearing:
+   pausing consumes no randomness, and neither does any touchline instruction, so a match played in
+   fragments is bit-identical to one played straight through (`TestLiveEqualsSim` asserts this down to
+   the box score). A manager who watches must not be able to reroll a result by watching.
+   The one thing that *does* legitimately differ is who picks the substitutions — see invariant 10.
 7. **The league list is data, not code.** `wanted` in `cmd/importer/main.go` is the only place
    divisions are enumerated; tiers, promotion and relegation counts flow from there through the pack
    into `model.League`. Adding a division is one line plus a re-import.
+8. **No club plays three league games running at the same ground.** `roundRobin` in
+   `engine/season/season.go` uses the canonical venue assignment — home or away follows the parity of
+   a club's distance from the circle's stationary pivot, and that distance falls by one every round —
+   which is what keeps clubs alternating. It leaves each club exactly one venue repeat per half, at
+   the round it meets the pivot, so `Generate` shifts the second half on by one round to stop that
+   repeat landing next to the halfway-point one. Assigning venues by anything else (position in the
+   pairing loop, club identity, a coin flip) gives clubs runs of a dozen away games. `TestVenueAlternation`
+   guards this across every league size from 4 to 26.
+9. **A side's strength is recomputed from scratch, so nothing may be bolted on afterwards.**
+   `Side.recompute` is called again on every substitution and every change of shape. Any penalty
+   applied by multiplying `attack`/`defence`/`midfield` *after* it — as the red-card penalty once was
+   — is silently handed back at the next change. State the cause on the `Side` (`sentOff`) and apply
+   it inside `recompute`.
+10. **The engine does not spend a human manager's substitutions.** `Live.TakeCharge` marks a side as
+    managed from the touchline, and `maybeSub` then makes only injury-forced changes for it. This is
+    the one respect in which watching a match differs from skipping it, and it has to: somebody must
+    pick the subs, and when nobody is in the dugout that has to be the engine.
+    `TestTakeChargeKeepsSubs` guards it.
+11. **A season tally is a running total on the player, and it must agree with the fixtures.** The
+    match engine reports one `match.PlayerLine` per player per game; `game.playFixture` translates it
+    into a `dev.Performance` and `dev.AfterMatch` folds it into `Apps`, `Goals`, `Penalties`,
+    `Assists`, `CleanSheets`, `Yellows`, `Reds`, `MinutesSum` and `RatingSum`. Three rules hold that
+    together, and `TestSeasonStats` checks all of them: **penalties are counted inside goals**, never
+    beside them, so `Penalties <= Goals` always; **a clean sheet is a goalkeeping record**, credited
+    only to the keeper and only after `cleanSheetMinutes` on the pitch; and **every new tally must be
+    cleared in `season.resetSeasonStats`**, or a striker carries ninety goals into next season
+    (`TestStatsResetEachSeason`). Adding a field to the tallies also means bumping
+    `store.formatVersion` — see invariant 5.
 
 ### Calibration is a test, not a comment
 
 `TestSeasonCalibration` (`game/soak_test.go`) plays a full European season on every run and asserts
-2.50–3.00 goals per match, 39–49% home wins, 20–30% draws, and a believable points spread per league
-(68–105 for the champion, 8–45 for the bottom club, normalised to 38 games). Tuning constants live at
-the top of `engine/match/sim.go`. **Any change to match simulation, fitness, development or squad
-strength must be re-checked against this test** — effects there are non-local and often only show up
-across a whole season. When a change legitimately shifts the rates, update both the thresholds and
-the calibration table in `README.md`.
+2.50–3.00 goals per match, 39–49% home wins, 20–30% draws, 6–14% of goals from the spot, and a
+believable points spread per league (68–110 for the champion, 8–45 for the bottom club, normalised to
+38 games). Tuning constants live at the top of `engine/match/sim.go`. **Any change to match
+simulation, fitness, development or squad strength must be re-checked against this test** — effects
+there are non-local and often only show up across a whole season. When a change legitimately shifts
+the rates, update both the thresholds and the calibration table in `README.md`.
+
+Two of those constants pay for each other and cannot be moved alone. `penaltyRate` is the share of
+chances given from the spot, and a penalty converts at nearly ten times an open chance, so raising it
+inflates league-wide scoring unless `baseXG` comes down to pay for it. Penalties are also a
+*strength-independent* source of goals — anyone converts at about the same rate — so they quietly
+level the league: cutting them widens the points spread even with scoring held constant, which is
+what pushed the champion's band to 110.
+
+A player's match rating is a second thing measured across a whole season rather than one game. It
+must not carry a standing bonus for a position: a rating is compared against other players' on the
+statistics screen, so a flat reward — the keeper bonus that once read `0.30 * (4 - conceded)` — puts
+every keeper in the game top of the chart without having saved a thing. Judge a contribution against
+what is typical (`typicalConceded`), so the adjustment averages zero across a season and only real
+performance moves it. Rating also feeds form, which feeds side strength, so this is a calibration
+change too, never a cosmetic one.
 
 ## Conventions
 

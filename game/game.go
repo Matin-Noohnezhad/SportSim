@@ -27,6 +27,12 @@ type Game struct {
 	Inbox []Message
 
 	rng *rng.R
+
+	// live is the managed club's fixture while the manager is taking charge of
+	// it from the touchline. It is deliberately not part of a save file: a match
+	// is either played or it is not, and a career reloaded mid-match simply
+	// kicks off again.
+	live *LiveMatch
 }
 
 // seasonWrapDays is how long the final tables stay on screen after the last
@@ -179,18 +185,24 @@ func (g *Game) AdvanceDay() DayReport {
 	return rep
 }
 
-// playFixture simulates one match and folds the result into the world.
+// playFixture plays one match to full time and folds the result into the world.
+//
+// Every fixture goes through a LiveMatch, including the ones nobody watches: a
+// match the manager took charge of is simply one that is already partly played
+// by the time it gets here, and PlayOut finishes whatever is left.
 func (g *Game) playFixture(f *season.Fixture) *match.Result {
 	w := g.World
-	home, away := w.Club(f.Home), w.Club(f.Away)
-	hs := g.buildSide(f.Home)
-	as := g.buildSide(f.Away)
+	home := w.Club(f.Home)
 
-	att := attendance(w, home, away, g.rng)
-	// Deriving the generator per fixture keeps a match reproducible regardless
-	// of what else happened that day.
-	r := rng.Derive(w.Seed, uint64(f.Date)*100003+uint64(f.Home)*397+uint64(f.Away))
-	res := match.Sim(r, hs, as, att)
+	lm := g.live
+	if lm != nil && lm.f == f {
+		g.live = nil
+	} else {
+		lm = g.begin(f)
+	}
+	lm.l.PlayOut()
+	res := lm.l.Result()
+	att := res.Attendance
 
 	f.Played = true
 	f.HomeGoals = uint8(res.HomeGoals)
@@ -217,7 +229,17 @@ func (g *Game) playFixture(f *season.Fixture) *match.Result {
 		if p == nil {
 			continue
 		}
-		dev.AfterMatch(p, int(ln.Minutes), ln.Goals, ln.Assists, ln.Rating, ln.Yellow, ln.Red, ln.Injury)
+		dev.AfterMatch(p, dev.Performance{
+			Minutes:    int(ln.Minutes),
+			Goals:      ln.Goals,
+			Penalties:  ln.Penalties,
+			Assists:    ln.Assists,
+			CleanSheet: ln.CleanSheet,
+			Rating:     ln.Rating,
+			Yellow:     ln.Yellow,
+			Red:        ln.Red,
+			Injury:     ln.Injury,
+		})
 		won := (ln.Team == 0) == homeWon && !drew
 		dev.MoraleForResult(p, won, drew)
 
@@ -304,6 +326,12 @@ func (g *Game) explicitLineup(c *model.Club, squad []*model.Player) ([11]*model.
 
 // attendance estimates a crowd from stadium size, the visitors' pull and how
 // the home side is doing.
+// fixtureKey identifies a fixture's own random stream. Deriving from it keeps a
+// match reproducible regardless of what else happened that day.
+func fixtureKey(f *season.Fixture) uint64 {
+	return uint64(f.Date)*100003 + uint64(f.Home)*397 + uint64(f.Away)
+}
+
 func attendance(w *model.World, home, away *model.Club, r *rng.R) uint32 {
 	if home == nil {
 		return 0
@@ -499,49 +527,6 @@ func (g *Game) Table(leagueID uint16) []season.Row {
 // NextFixture returns the managed club's next match.
 func (g *Game) NextFixture() *season.Fixture {
 	return g.Sched.NextFor(g.World.HumanClubID)
-}
-
-// ScorerRow is one line of a scoring chart.
-type ScorerRow struct {
-	PlayerID uint32
-	Name     string
-	Club     string
-	Goals    int
-	Assists  int
-	Apps     int
-}
-
-// TopScorers returns the leading scorers in a league, or across the whole world
-// when leagueID is zero.
-func (g *Game) TopScorers(leagueID uint16, limit int) []ScorerRow {
-	w := g.World
-	out := make([]ScorerRow, 0, 64)
-	for i := range w.Players {
-		p := &w.Players[i]
-		if p.Goals == 0 || p.ClubID == 0 {
-			continue
-		}
-		if leagueID != 0 {
-			c := w.Club(p.ClubID)
-			if c == nil || c.LeagueID != leagueID {
-				continue
-			}
-		}
-		out = append(out, ScorerRow{
-			PlayerID: p.ID, Name: p.Name, Club: w.ClubName(p.ClubID),
-			Goals: int(p.Goals), Assists: int(p.Assists), Apps: int(p.Apps),
-		})
-	}
-	sort.SliceStable(out, func(a, b int) bool {
-		if out[a].Goals != out[b].Goals {
-			return out[a].Goals > out[b].Goals
-		}
-		return out[a].Assists > out[b].Assists
-	})
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out
 }
 
 // SearchPlayers finds transfer targets matching a name fragment and filters.
