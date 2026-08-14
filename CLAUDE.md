@@ -99,6 +99,14 @@ few simulated seasons.
 7. **The league list is data, not code.** `wanted` in `cmd/importer/main.go` is the only place
    divisions are enumerated; tiers, promotion and relegation counts flow from there through the pack
    into `model.League`. Adding a division is one line plus a re-import.
+8. **No club plays three league games running at the same ground.** `roundRobin` in
+   `engine/season/season.go` uses the canonical venue assignment — home or away follows the parity of
+   a club's distance from the circle's stationary pivot, and that distance falls by one every round —
+   which is what keeps clubs alternating. It leaves each club exactly one venue repeat per half, at
+   the round it meets the pivot, so `Generate` shifts the second half on by one round to stop that
+   repeat landing next to the halfway-point one. Assigning venues by anything else (position in the
+   pairing loop, club identity, a coin flip) gives clubs runs of a dozen away games. `TestVenueAlternation`
+   guards this across every league size from 4 to 26.
 
 ### Calibration is a test, not a comment
 

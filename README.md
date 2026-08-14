@@ -116,22 +116,22 @@ on every test run:
 
 | | Simulated | Real |
 |---|---|---|
-| Goals per match | 2.69 | ~2.75 |
-| Home / away goals | 1.51 / 1.18 | 1.55 / 1.20 |
+| Goals per match | 2.75 | ~2.75 |
+| Home / away goals | 1.50 / 1.25 | 1.55 / 1.20 |
 | Shots per match | 25.2 | ~25 |
 | Shots on target | 8.6 | ~8.5 |
 | Corners | 9.9 | ~10.5 |
 | Fouls | 22.8 | ~22 |
 | Yellow / red cards | 3.6 / 0.12 | 3.9 / 0.11 |
-| Home wins / draws | 44.0% / 23.4% | 44% / 26% |
+| Home wins / draws | 43.8% / 23.4% | 44% / 26% |
 
 A representative simulated season:
 
 ```
-Premier League    85..23 pts   Manchester City      Ligue 1        90..21 pts   Paris Saint-Germain
-La Liga          105..16 pts   Real Madrid          Primeira Liga  82..26 pts   SL Benfica
-Bundesliga        78..25 pts   FC Bayern München    Eredivisie     78..18 pts   Feyenoord
-Serie A           85..25 pts   Inter                Süper Lig      87..22 pts   Galatasaray SK
+Premier League    83..21 pts   Manchester City      Ligue 1        77..24 pts   Paris Saint-Germain
+La Liga          101..28 pts   Real Madrid          Primeira Liga  79..17 pts   SL Benfica
+Bundesliga        79..22 pts   FC Bayern München    Eredivisie     75..16 pts   AZ Alkmaar
+Serie A           90..18 pts   Inter                Süper Lig      91..18 pts   Galatasaray SK
 ```
 
 ## Architecture
