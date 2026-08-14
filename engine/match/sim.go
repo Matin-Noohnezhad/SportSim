@@ -60,15 +60,17 @@ type TeamStats struct {
 // PlayerLine is one player's match record, used to update season tallies and
 // to show a post-match player-rating table.
 type PlayerLine struct {
-	PlayerID uint32
-	Team     uint8
-	Minutes  uint8
-	Goals    uint8
-	Assists  uint8
-	Yellow   bool
-	Red      bool
-	Rating   float64
-	Injury   uint16 // days out, 0 if uninjured
+	PlayerID   uint32
+	Team       uint8
+	Minutes    uint8
+	Goals      uint8
+	Penalties  uint8 // goals from the spot, counted within Goals
+	Assists    uint8
+	Yellow     bool
+	Red        bool
+	CleanSheet bool // a keeper who saw out the match without conceding
+	Rating     float64
+	Injury     uint16 // days out, 0 if uninjured
 }
 
 // Result is everything the rest of the game needs to know about a played match.
@@ -89,12 +91,21 @@ func (r *Result) Played() bool { return r != nil && len(r.Events) > 0 }
 // ~2.7 goals, ~25 shots, ~22 fouls and ~3.8 yellow cards per match, with the
 // home side taking roughly 46% of points more than the away side.
 const (
-	baseXG         = 0.077 // average chance quality
+	baseXG         = 0.090 // average chance quality
 	homeAttackEdge = 1.062
 	homeDefEdge    = 1.035
 	fatiguePerMin  = 0.34
 	regulationMins = 90
 	maxSubs        = 5
+
+	// typicalConceded is what one side lets in over a match, and is the mark a
+	// keeper's rating is measured against.
+	typicalConceded = 1.36
+
+	// cleanSheetMinutes is how long a keeper must be on the pitch to be
+	// credited with the clean sheet, so a substitute who plays the last ten
+	// minutes of a goalless game does not share in one.
+	cleanSheetMinutes = 60
 
 	// baseChanceRate is the per-minute probability that a chance falls to one
 	// side or the other. It sets the total number of shots in a match and is
@@ -105,6 +116,12 @@ const (
 	// of chances. Because it only redistributes chances, raising it makes strong
 	// sides dominate without changing league-wide scoring.
 	threatExponent = 1.62
+
+	// penaltyRate is the share of chances that come from the spot. It is small
+	// and expensive: a penalty converts at nearly ten times the rate of an open
+	// chance, so it has to be paid for out of baseXG. Real leagues award about
+	// a quarter of a penalty per match, which is a twelfth of all goals.
+	penaltyRate = 0.013
 )
 
 // Sim plays a match through to full time and returns the result. The generator
@@ -149,6 +166,7 @@ type tracker struct {
 	yellow   map[uint32]bool
 	sentOff  map[uint32]bool
 	goals    map[uint32]uint8
+	pens     map[uint32]uint8
 	assists  map[uint32]uint8
 	injuries map[uint32]uint16
 	teamOf   map[uint32]uint8
@@ -177,7 +195,8 @@ func newTracker(sides [2]*Side) *tracker {
 	t := &tracker{
 		minutes: map[uint32]int{}, entered: map[uint32]int{}, pts: map[uint32]float64{},
 		yellow: map[uint32]bool{}, sentOff: map[uint32]bool{}, goals: map[uint32]uint8{},
-		assists: map[uint32]uint8{}, injuries: map[uint32]uint16{}, teamOf: map[uint32]uint8{},
+		pens: map[uint32]uint8{}, assists: map[uint32]uint8{},
+		injuries: map[uint32]uint16{}, teamOf: map[uint32]uint8{},
 		all: map[uint32]*model.Player{}, lineOf: map[uint32]model.Line{},
 		fatigue: map[uint32]float64{}, startFit: map[uint32]float64{},
 	}
@@ -224,7 +243,7 @@ func (t *tracker) chance(r *rng.R, res *Result, sides [2]*Side, att, minute uint
 	sp := a.Lineup[shooter]
 
 	// A small share of chances come from the spot.
-	if r.Chance(0.035) {
+	if r.Chance(penaltyRate) {
 		t.penalty(r, res, sides, att, minute)
 		return
 	}
@@ -307,6 +326,7 @@ func (t *tracker) scoreGoal(r *rng.R, res *Result, sides [2]*Side, att, minute u
 		Home: uint8(res.HomeGoals), Away: uint8(res.AwayGoals), Variant: uint8(r.Intn(5))}
 	if penalty {
 		ev.Type = EvPenaltyScored
+		t.pens[sp.ID]++
 	} else if a := t.pickAssist(r, sides[att], shooterSlot); a != nil {
 		ev.Other = a.ID
 		t.assists[a.ID]++
@@ -684,13 +704,22 @@ func (t *tracker) finish(r *rng.R, res *Result, sides [2]*Side) {
 		case gf < ga:
 			rating -= 0.28 * share
 		}
+		cleanSheet := false
 		if line, ok := t.lineOf[id]; ok {
-			if ga == 0 && (line == model.LineGK || line == model.LineDef) && mins > 60 {
+			if ga == 0 && (line == model.LineGK || line == model.LineDef) && mins > cleanSheetMinutes {
 				rating += 0.55
 			}
 			if line == model.LineGK {
-				// Keepers are judged mostly on goals conceded.
-				rating += 0.30 * float64(4-ga)
+				// Keepers are judged mostly on goals conceded, measured against
+				// what a side typically concedes. Measuring against nothing in
+				// particular — a bonus for keeping the score under four — hands
+				// every keeper in the game the same three quarters of a point,
+				// which puts them at the top of every average-rating chart
+				// without having saved a thing.
+				rating += 0.30 * (typicalConceded - float64(ga))
+				// The clean sheet itself is a goalkeeping record, so it is only
+				// credited to the man in goal.
+				cleanSheet = ga == 0 && mins >= cleanSheetMinutes
 			}
 		}
 		// A little noise so identical performances are not identically rated.
@@ -699,15 +728,17 @@ func (t *tracker) finish(r *rng.R, res *Result, sides [2]*Side) {
 		rating = math.Round(rating*10) / 10
 
 		res.Lines = append(res.Lines, PlayerLine{
-			PlayerID: id,
-			Team:     team,
-			Minutes:  uint8(mins),
-			Goals:    t.goals[id],
-			Assists:  t.assists[id],
-			Yellow:   t.yellow[id],
-			Red:      t.sentOff[id],
-			Rating:   rating,
-			Injury:   t.injuries[id],
+			PlayerID:   id,
+			Team:       team,
+			Minutes:    uint8(mins),
+			Goals:      t.goals[id],
+			Penalties:  t.pens[id],
+			Assists:    t.assists[id],
+			Yellow:     t.yellow[id],
+			Red:        t.sentOff[id],
+			CleanSheet: cleanSheet,
+			Rating:     rating,
+			Injury:     t.injuries[id],
 		})
 
 		// Match sharpness climbs with game time and decays without it.

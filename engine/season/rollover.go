@@ -381,6 +381,7 @@ func resetSeasonStats(w *model.World) {
 	for i := range w.Players {
 		p := &w.Players[i]
 		p.Apps, p.Goals, p.Assists, p.MinutesSum = 0, 0, 0, 0
+		p.Penalties, p.CleanSheets = 0, 0
 		p.Yellows, p.Reds, p.RatingSum = 0, 0, 0
 		p.Suspension = 0
 		p.Fitness, p.Sharpness = 100, 45

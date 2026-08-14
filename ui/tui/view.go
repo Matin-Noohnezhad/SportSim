@@ -33,6 +33,8 @@ func (m *Model) View() string {
 		body = m.viewTactics()
 	case ScreenTable:
 		body = m.viewTable()
+	case ScreenStats:
+		body = m.viewStats()
 	case ScreenFixtures:
 		body = m.viewFixtures()
 	case ScreenTransfers:
@@ -82,7 +84,9 @@ func (m *Model) footer() string {
 	case ScreenTactics:
 		keys = "[↑↓] move  [enter] swap two players  [a] auto pick  [ ] [ ] formation  [←→] adjust slider  [q] back"
 	case ScreenTable:
-		keys = "[←→] change division  [space] advance day  [q] back"
+		keys = "[←→] change division  [tab] statistics  [space] advance day  [q] back"
+	case ScreenStats:
+		keys = "[←→] change division  [tab] back to the table  [space] advance day  [q] back"
 	case ScreenTransfers:
 		keys = "[/] search  [↑↓] move  [enter] bid  [v] profile  [q] back"
 	case ScreenMatch:
@@ -461,12 +465,180 @@ func (m *Model) viewTable() string {
 		b.WriteString(" " + marker + m.tableRow(i+1, r, r.ClubID == m.g.World.HumanClubID) + "\n")
 	}
 
-	b.WriteString("\n  " + stHeader.Render("LEADING SCORERS") + "\n")
-	for _, s := range m.g.TopScorers(l.ID, 5) {
-		b.WriteString(fmt.Sprintf("  %-24s %-24s %2d goals, %d assists\n",
-			trunc(s.Name, 24), trunc(s.Club, 24), s.Goals, s.Assists))
+	b.WriteString("\n  " + stHeader.Render("LEADING SCORERS") +
+		stMuted.Render("   [tab] for the full statistics") + "\n")
+	for _, s := range m.g.Stats(l.ID, 5).Scorers {
+		b.WriteString(fmt.Sprintf("  %s %s %2d goals%s, %d assists\n",
+			padVisible(trunc(s.Name, 24), 24), padVisible(trunc(s.Club, 24), 24),
+			s.Goals, pens(s.Penalties), s.Assists))
 	}
 	return b.String()
+}
+
+// ---------------- statistics ----------------
+
+// statColumn is how wide one leaderboard is drawn. Two fit side by side on a
+// normal terminal; on a narrow one the charts stack instead.
+const statColumn = 54
+
+func (m *Model) viewStats() string {
+	l := m.g.World.League(m.tableLeague)
+	if l == nil {
+		return "\n  no league selected\n"
+	}
+	// Six charts sit in three rows when two fit across the terminal, and in six
+	// when they have to stack; each row has to be shallower in the second case.
+	stacked := m.width < 2*statColumn+4
+	rows := 3
+	if stacked {
+		rows = 6
+	}
+	st := m.g.Stats(l.ID, m.statRows(rows))
+
+	var b strings.Builder
+	b.WriteString("\n  " + stTitle.Render(l.Name) + stMuted.Render("  season statistics") + "\n\n")
+	b.WriteString(m.statSummary(st.Summary))
+
+	ratings := fmt.Sprintf("AVERAGE RATING (%d+ apps)", st.RatingApps)
+	charts := [][]string{
+		chart("TOP SCORERS", st.Scorers, func(s game.PlayerStat) (string, string) {
+			return fmt.Sprintf("%3d", s.Goals), penNote(s.Penalties)
+		}),
+		chart("TOP ASSISTS", st.Assists, func(s game.PlayerStat) (string, string) {
+			return fmt.Sprintf("%3d", s.Assists), fmt.Sprintf("%d gls", s.Goals)
+		}),
+		chart("CLEAN SHEETS", st.CleanSheets, func(s game.PlayerStat) (string, string) {
+			return fmt.Sprintf("%3d", s.CleanSheets), fmt.Sprintf("%d apps", s.Apps)
+		}),
+		chart(ratings, st.Ratings, func(s game.PlayerStat) (string, string) {
+			return fmt.Sprintf("%5.2f", s.AvgRating), fmt.Sprintf("%d apps", s.Apps)
+		}),
+		chart("YELLOW CARDS", st.Yellows, func(s game.PlayerStat) (string, string) {
+			return fmt.Sprintf("%3d", s.Yellows), reds(s.Reds)
+		}),
+		chart("RED CARDS", st.Reds, func(s game.PlayerStat) (string, string) {
+			return fmt.Sprintf("%3d", s.Reds), fmt.Sprintf("%d yel", s.Yellows)
+		}),
+	}
+
+	if stacked {
+		for _, c := range charts {
+			for _, line := range c {
+				b.WriteString("  " + line + "\n")
+			}
+			b.WriteString("\n")
+		}
+		return b.String()
+	}
+	for i := 0; i+1 < len(charts); i += 2 {
+		for _, line := range pair(charts[i], charts[i+1]) {
+			b.WriteString("  " + line + "\n")
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// statRows is how deep each chart is drawn, given how many rows of them have
+// to fit the screen between the summary and the footer.
+func (m *Model) statRows(rows int) int {
+	n := (m.height-14)/rows - 2
+	if n < 3 {
+		return 3
+	}
+	if n > 10 {
+		return 10
+	}
+	return n
+}
+
+func (m *Model) statSummary(s game.LeagueSummary) string {
+	var b strings.Builder
+	b.WriteString(stHeader.Render("  SEASON SO FAR") + "\n")
+	if s.Played == 0 {
+		b.WriteString("  " + stMuted.Render("Not a ball kicked yet.") + "\n\n")
+		return b.String()
+	}
+	share := func(n int) string { return fmt.Sprintf("%.0f%%", float64(n)*100/float64(s.Played)) }
+
+	b.WriteString(fmt.Sprintf("  %d of %d matches    %d goals, %s per match    home %s / draw %s / away %s\n",
+		s.Played, s.Total, s.Goals, stBold.Render(fmt.Sprintf("%.2f", s.GoalsPerMatch)),
+		share(s.HomeWins), share(s.Draws), share(s.AwayWins)))
+	b.WriteString(fmt.Sprintf("  %d clean sheets    %s yellow, %s red    %s\n\n",
+		s.CleanSheets, stWarn.Render(fmt.Sprint(s.Yellows)), stBad.Render(fmt.Sprint(s.Reds)),
+		stMuted.Render("biggest win  "+scoreline(s.BiggestWin))))
+	return b.String()
+}
+
+func scoreline(s *game.Scoreline) string {
+	if s == nil {
+		return "—"
+	}
+	return fmt.Sprintf("%s %d-%d %s", trunc(s.Home, 20), s.HomeGoals, s.AwayGoals, trunc(s.Away, 20))
+}
+
+// chart renders one leaderboard: a heading, then a numbered line per player.
+// value is what the chart ranks on and note is the supporting figure beside it.
+func chart(title string, rows []game.PlayerStat, cells func(game.PlayerStat) (value, note string)) []string {
+	out := make([]string, 0, len(rows)+1)
+	out = append(out, stHeader.Render(padVisible(title, statColumn)))
+	if len(rows) == 0 {
+		return append(out, stMuted.Render("nobody yet"))
+	}
+	for i, s := range rows {
+		value, note := cells(s)
+		// Columns are padded with padVisible rather than by fmt, which counts
+		// bytes and escape codes: half these names are accented and every club
+		// is styled, so %-15s would pad neither to the width the eye sees.
+		line := fmt.Sprintf("%2d %s %s %s  %s",
+			i+1, padVisible(trunc(s.Name, 19), 19),
+			stMuted.Render(padVisible(trunc(s.Club, 15), 15)),
+			stBold.Render(value), stMuted.Render(note))
+		out = append(out, strings.TrimRight(line, " "))
+	}
+	return out
+}
+
+// pair sets two charts side by side, padding the shorter one out.
+func pair(left, right []string) []string {
+	n := len(left)
+	if len(right) > n {
+		n = len(right)
+	}
+	out := make([]string, n)
+	for i := 0; i < n; i++ {
+		l, r := "", ""
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(right) {
+			r = right[i]
+		}
+		out[i] = padVisible(l, statColumn+2) + r
+	}
+	return out
+}
+
+// pens renders a scorer's penalty count as an aside on their goal tally.
+func pens(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%d pen)", n)
+}
+
+func penNote(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d pen", n)
+}
+
+func reds(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d red", n)
 }
 
 // ---------------- fixtures ----------------
@@ -646,10 +818,18 @@ func (m *Model) viewPlayerDetail() string {
 		ratingStyle(int(p.CurrentAbility())).Render(fmt.Sprintf("%.0f", p.CurrentAbility())),
 		p.Potential, transfer.Money(int64(p.ValueEUR)), transfer.Money(int64(p.WageEUR)), p.ContractUntil))
 
-	b.WriteString(fmt.Sprintf("  Fitness %s   Morale %s   Form %+d   Season: %d apps, %d goals, %d assists, %.2f avg\n\n",
+	b.WriteString(fmt.Sprintf("  Fitness %s   Morale %s   Form %+d   Sharpness %d\n",
 		meterStyle(int(p.Fitness)).Render(fmt.Sprintf("%d", p.Fitness)),
 		meterStyle(int(p.Morale)).Render(fmt.Sprintf("%d", p.Morale)),
-		p.Form, p.Apps, p.Goals, p.Assists, p.AvgRating()))
+		p.Form, p.Sharpness))
+	b.WriteString(fmt.Sprintf("  Season: %d apps, %s mins, %d goals%s, %d assists, %.2f avg rating\n",
+		p.Apps, comma(int64(p.MinutesSum)), p.Goals, pens(int(p.Penalties)), p.Assists, p.AvgRating()))
+	discipline := fmt.Sprintf("  %s yellow, %s red", stWarn.Render(fmt.Sprint(p.Yellows)),
+		stBad.Render(fmt.Sprint(p.Reds)))
+	if p.IsGK() {
+		discipline += fmt.Sprintf("   %d clean sheets", p.CleanSheets)
+	}
+	b.WriteString(discipline + "\n\n")
 
 	// Attributes in three columns.
 	b.WriteString(stHeader.Render("  ATTRIBUTES") + "\n")

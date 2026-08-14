@@ -53,7 +53,10 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
 
 - **`game`** is the façade every frontend calls. It owns `Game{World, Sched, Inbox, rng}` and exposes
   manager actions (`Bid`, `Sell`, `SetFormation`, `SwapLineup`, `AutoSelect`, `OfferContract`) and
-  queries (`Squad`, `Table`, `TopScorers`, `Search`) as plain methods over plain serialisable structs.
+  queries (`Squad`, `Table`, `Stats`, `Search`) as plain methods over plain serialisable structs.
+  `game/stats.go` compiles the season's charts — scorers, assists, clean sheets, ratings, cards —
+  and the division's aggregate summary; a chart is a filter, a sort and a truncation over one pass
+  of the players, so adding one is a call to `topBy`, not a new query.
   `AdvanceDay()` is the heartbeat: it plays the day's fixtures, applies recovery, pays wages on
   Mondays, trains on the 1st of the month, runs the AI market, then moves the clock. **A second
   frontend (HTTP, mobile) is a new package beside `ui/tui`, not a rewrite — so nothing that belongs
@@ -77,7 +80,10 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
 - **`ui/tui`** is Bubble Tea: `Model` in `app.go` (state + key handling), rendering in `view.go`,
   the match feed and touchline panels in `match.go`, Lip Gloss styles in `styles.go`. `ScreenMatch`
   intercepts keys *before* the global bindings, because from the touchline `s` and `t` are the
-  substitution and shape panels rather than the squad and tactics screens.
+  substitution and shape panels rather than the squad and tactics screens. `ScreenTable` and
+  `ScreenStats` are two views of one division and share `keyTable`, with `tab` between them; the
+  charts sit two abreast on a wide terminal and stack on a narrow one, which is why `statRows` is
+  told how many rows of them there will be.
 - **`store`** gob-encodes and gzips a `snapshot` of world + schedule + inbox + RNG state.
 
 ### Invariants that hold the design together
@@ -135,16 +141,41 @@ few simulated seasons.
     the one respect in which watching a match differs from skipping it, and it has to: somebody must
     pick the subs, and when nobody is in the dugout that has to be the engine.
     `TestTakeChargeKeepsSubs` guards it.
+11. **A season tally is a running total on the player, and it must agree with the fixtures.** The
+    match engine reports one `match.PlayerLine` per player per game; `game.playFixture` translates it
+    into a `dev.Performance` and `dev.AfterMatch` folds it into `Apps`, `Goals`, `Penalties`,
+    `Assists`, `CleanSheets`, `Yellows`, `Reds`, `MinutesSum` and `RatingSum`. Three rules hold that
+    together, and `TestSeasonStats` checks all of them: **penalties are counted inside goals**, never
+    beside them, so `Penalties <= Goals` always; **a clean sheet is a goalkeeping record**, credited
+    only to the keeper and only after `cleanSheetMinutes` on the pitch; and **every new tally must be
+    cleared in `season.resetSeasonStats`**, or a striker carries ninety goals into next season
+    (`TestStatsResetEachSeason`). Adding a field to the tallies also means bumping
+    `store.formatVersion` — see invariant 5.
 
 ### Calibration is a test, not a comment
 
 `TestSeasonCalibration` (`game/soak_test.go`) plays a full European season on every run and asserts
-2.50–3.00 goals per match, 39–49% home wins, 20–30% draws, and a believable points spread per league
-(68–105 for the champion, 8–45 for the bottom club, normalised to 38 games). Tuning constants live at
-the top of `engine/match/sim.go`. **Any change to match simulation, fitness, development or squad
-strength must be re-checked against this test** — effects there are non-local and often only show up
-across a whole season. When a change legitimately shifts the rates, update both the thresholds and
-the calibration table in `README.md`.
+2.50–3.00 goals per match, 39–49% home wins, 20–30% draws, 6–14% of goals from the spot, and a
+believable points spread per league (68–110 for the champion, 8–45 for the bottom club, normalised to
+38 games). Tuning constants live at the top of `engine/match/sim.go`. **Any change to match
+simulation, fitness, development or squad strength must be re-checked against this test** — effects
+there are non-local and often only show up across a whole season. When a change legitimately shifts
+the rates, update both the thresholds and the calibration table in `README.md`.
+
+Two of those constants pay for each other and cannot be moved alone. `penaltyRate` is the share of
+chances given from the spot, and a penalty converts at nearly ten times an open chance, so raising it
+inflates league-wide scoring unless `baseXG` comes down to pay for it. Penalties are also a
+*strength-independent* source of goals — anyone converts at about the same rate — so they quietly
+level the league: cutting them widens the points spread even with scoring held constant, which is
+what pushed the champion's band to 110.
+
+A player's match rating is a second thing measured across a whole season rather than one game. It
+must not carry a standing bonus for a position: a rating is compared against other players' on the
+statistics screen, so a flat reward — the keeper bonus that once read `0.30 * (4 - conceded)` — puts
+every keeper in the game top of the chart without having saved a thing. Judge a contribution against
+what is typical (`typicalConceded`), so the adjustment averages zero across a season and only real
+performance moves it. Rating also feeds form, which feeds side strength, so this is a calibration
+change too, never a cosmetic one.
 
 ## Conventions
 

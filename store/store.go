@@ -19,7 +19,9 @@ import (
 	"sportsim/game"
 )
 
-const formatVersion = 1
+// formatVersion is bumped whenever the saved layout changes. Version 2 added
+// the penalty and clean-sheet season tallies to a player.
+const formatVersion = 2
 
 // snapshot is the on-disk representation of a career.
 type snapshot struct {

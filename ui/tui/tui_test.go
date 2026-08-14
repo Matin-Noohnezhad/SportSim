@@ -36,7 +36,7 @@ func TestScreensRender(t *testing.T) {
 
 	screens := map[string]Screen{
 		"home": ScreenHome, "squad": ScreenSquad, "tactics": ScreenTactics,
-		"table": ScreenTable, "fixtures": ScreenFixtures, "transfers": ScreenTransfers,
+		"table": ScreenTable, "stats": ScreenStats, "fixtures": ScreenFixtures, "transfers": ScreenTransfers,
 		"inbox": ScreenInbox, "player": ScreenPlayer, "match": ScreenMatch,
 		"seasonEnd": ScreenSeasonEnd, "newGame": ScreenNewGame,
 	}
@@ -47,6 +47,14 @@ func TestScreensRender(t *testing.T) {
 			t.Errorf("%s screen rendered nothing", name)
 		}
 	}
+
+	// The statistics charts stack instead of sitting side by side on a narrow
+	// terminal, which is a second layout to keep from panicking.
+	m.width, m.screen = 70, ScreenStats
+	if strings.TrimSpace(m.View()) == "" {
+		t.Error("stats screen rendered nothing at narrow width")
+	}
+	m.width = 120
 
 	// Cursors at the far end of each list must not panic either.
 	m.squadCur = len(g.Squad()) - 1
@@ -69,11 +77,11 @@ func TestKeyNavigation(t *testing.T) {
 
 	keys := []string{"s", "down", "down", "up", "enter", "esc", "t", "a", "]", "[",
 		"down", "enter", "down", "enter", "right", "left", "l", "right", "left",
-		"f", "r", "/", "esc", "i", "h", "L", " "}
+		"tab", "right", "left", "tab", "f", "r", "/", "esc", "i", "h", "L", " "}
 	for _, k := range keys {
 		var msg tea.KeyMsg
 		switch k {
-		case "down", "up", "left", "right", "enter", "esc":
+		case "down", "up", "left", "right", "enter", "esc", "tab":
 			msg = tea.KeyMsg{Type: keyType(k)}
 		default:
 			msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
@@ -235,6 +243,8 @@ func keyType(k string) tea.KeyType {
 		return tea.KeyRight
 	case "enter":
 		return tea.KeyEnter
+	case "tab":
+		return tea.KeyTab
 	}
 	return tea.KeyEsc
 }

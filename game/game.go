@@ -229,7 +229,17 @@ func (g *Game) playFixture(f *season.Fixture) *match.Result {
 		if p == nil {
 			continue
 		}
-		dev.AfterMatch(p, int(ln.Minutes), ln.Goals, ln.Assists, ln.Rating, ln.Yellow, ln.Red, ln.Injury)
+		dev.AfterMatch(p, dev.Performance{
+			Minutes:    int(ln.Minutes),
+			Goals:      ln.Goals,
+			Penalties:  ln.Penalties,
+			Assists:    ln.Assists,
+			CleanSheet: ln.CleanSheet,
+			Rating:     ln.Rating,
+			Yellow:     ln.Yellow,
+			Red:        ln.Red,
+			Injury:     ln.Injury,
+		})
 		won := (ln.Team == 0) == homeWon && !drew
 		dev.MoraleForResult(p, won, drew)
 
@@ -517,49 +527,6 @@ func (g *Game) Table(leagueID uint16) []season.Row {
 // NextFixture returns the managed club's next match.
 func (g *Game) NextFixture() *season.Fixture {
 	return g.Sched.NextFor(g.World.HumanClubID)
-}
-
-// ScorerRow is one line of a scoring chart.
-type ScorerRow struct {
-	PlayerID uint32
-	Name     string
-	Club     string
-	Goals    int
-	Assists  int
-	Apps     int
-}
-
-// TopScorers returns the leading scorers in a league, or across the whole world
-// when leagueID is zero.
-func (g *Game) TopScorers(leagueID uint16, limit int) []ScorerRow {
-	w := g.World
-	out := make([]ScorerRow, 0, 64)
-	for i := range w.Players {
-		p := &w.Players[i]
-		if p.Goals == 0 || p.ClubID == 0 {
-			continue
-		}
-		if leagueID != 0 {
-			c := w.Club(p.ClubID)
-			if c == nil || c.LeagueID != leagueID {
-				continue
-			}
-		}
-		out = append(out, ScorerRow{
-			PlayerID: p.ID, Name: p.Name, Club: w.ClubName(p.ClubID),
-			Goals: int(p.Goals), Assists: int(p.Assists), Apps: int(p.Apps),
-		})
-	}
-	sort.SliceStable(out, func(a, b int) bool {
-		if out[a].Goals != out[b].Goals {
-			return out[a].Goals > out[b].Goals
-		}
-		return out[a].Assists > out[b].Assists
-	})
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out
 }
 
 // SearchPlayers finds transfer targets matching a name fragment and filters.

@@ -28,6 +28,7 @@ const (
 	ScreenSquad
 	ScreenTactics
 	ScreenTable
+	ScreenStats
 	ScreenFixtures
 	ScreenTransfers
 	ScreenInbox
@@ -240,7 +241,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keySquad(key)
 	case ScreenTactics:
 		return m.keyTactics(key)
-	case ScreenTable:
+	case ScreenTable, ScreenStats:
 		return m.keyTable(key)
 	case ScreenFixtures:
 		return m.keyList(key, &m.fixtureCur, 200)
@@ -504,8 +505,10 @@ func adjustSlider(c *model.Club, cur, delta int) {
 	*sliders[i] = uint8(v)
 }
 
-// ---------------- table ----------------
+// ---------------- table and statistics ----------------
 
+// keyTable serves both league screens, which are two views of one division:
+// the standings and the season's statistics, with tab between them.
 func (m *Model) keyTable(key string) (tea.Model, tea.Cmd) {
 	ls := m.g.World.LeaguesByTier()
 	idx := 0
@@ -522,6 +525,12 @@ func (m *Model) keyTable(key string) (tea.Model, tea.Cmd) {
 	case "right", "]":
 		if idx < len(ls)-1 {
 			m.tableLeague = ls[idx+1].ID
+		}
+	case "tab":
+		if m.screen == ScreenStats {
+			m.screen = ScreenTable
+		} else {
+			m.screen = ScreenStats
 		}
 	}
 	return m, nil

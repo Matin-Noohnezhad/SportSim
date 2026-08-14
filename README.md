@@ -62,6 +62,8 @@ Saves live in `~/.sportsim/saves`.
 | `space` | advance one day |
 | `w` / `m` | fast-forward to your next match / 30 days |
 | `s` `t` `l` `f` `r` `i` | squad, tactics, league, fixtures, transfers, inbox |
+| `←` `→` | on the league screen, change division |
+| `tab` | on the league screen, switch between the table and the season statistics |
 | `L` | toggle between a minute-by-minute feed and an instant result |
 | `S` | save |
 | `q` | back, or quit from the home screen |
@@ -87,6 +89,28 @@ held back: the other results, wages and the calendar only move once you leave.
 And the engine stops picking your substitutions the moment you take charge — it
 will still force a change if you leave an injured player on, but the rest are
 yours to spend. Watch with `L` off and it manages the match for you, as before.
+
+## Statistics
+
+`tab` on the league screen turns the table into the division's season in full:
+the aggregate — matches played, goals per match, the home/draw/away split, cards,
+clean sheets and the biggest win so far — and then six charts, for goals, assists,
+clean sheets, average match rating, yellow cards and red cards.
+
+```
+  TOP SCORERS                                    TOP ASSISTS
+   1 J. Alvarez        Atlético Madrid  24 9 pen  1 J. Bellingham   Real Madrid    10  6 gls
+   2 R. Lewandowski    FC Barcelona     22 5 pen  2 Raphinha        FC Barcelona    8 15 gls
+```
+
+Goals scored from the spot are counted separately and shown beside the tally,
+here and on a player's profile, because a striker on twenty-four with nine
+penalties is not the same player as one on twenty-four without. Penalties go to
+the club's nominated taker, so they concentrate the way they do in real
+football. Clean sheets are a goalkeeping record and are only credited to a
+keeper who saw at least an hour of the match out. The rating chart asks for
+appearances in half the matches played so far, which is why its qualifying bar
+is written into its heading.
 
 ## Leagues
 
@@ -149,10 +173,13 @@ binding target:
 
 | | Simulated | Real |
 |---|---|---|
-| Goals per match | 2.72 | ~2.75 |
-| Home / away goals | 1.48 / 1.24 | 1.55 / 1.20 |
-| Home wins / draws | 43.6% / 23.7% | 44% / 26% |
-| Home share of all points | 55.9% | ~56% |
+| Goals per match | 2.74 | ~2.75 |
+| Home / away goals | 1.51 / 1.23 | 1.55 / 1.20 |
+| Home wins / draws | 44.8% / 22.7% | 44% / 26% |
+| Home share of all points | 56.7% | ~56% |
+| Penalties per match | 0.27 | ~0.27 |
+| Goals from the spot | 9.8% | ~9% |
+| Goals assisted | 70.4% | ~70% |
 
 The box score comes from `TestEngineSanity`, which plays the same fixtures with
 every squad in neutral condition, so it isolates the match engine from a season's
@@ -161,18 +188,18 @@ wear and tear:
 | | Simulated | Real |
 |---|---|---|
 | Shots per match | 24.9 | ~25 |
-| Shots on target | 8.5 | ~8.5 |
-| Corners | 10.2 | ~10.5 |
+| Shots on target | 8.4 | ~8.5 |
+| Corners | 10.3 | ~10.5 |
 | Fouls | 21.8 | ~22 |
-| Yellow / red cards | 3.75 / 0.15 | 3.9 / 0.11 |
+| Yellow / red cards | 3.81 / 0.15 | 3.9 / 0.11 |
 
 A representative simulated season:
 
 ```
-Premier League    82..24 pts   Manchester City      Ligue 1        73..26 pts   Paris Saint-Germain
-La Liga           95..22 pts   Real Madrid          Primeira Liga  88..29 pts   SL Benfica
-Bundesliga        80..26 pts   FC Bayern München    Eredivisie     78..20 pts   AZ Alkmaar
-Serie A           85..24 pts   Inter                Süper Lig      91..18 pts   Galatasaray SK
+Premier League    85..24 pts   Liverpool            Ligue 1        76..22 pts   Paris Saint-Germain
+La Liga           94..14 pts   Real Madrid          Primeira Liga  88..23 pts   SL Benfica
+Bundesliga        83..19 pts   FC Bayern München    Eredivisie     79..16 pts   AZ Alkmaar
+Serie A           91..10 pts   Inter                Süper Lig      95..19 pts   Galatasaray SK
 ```
 
 ## Architecture
@@ -237,6 +264,8 @@ go test ./...
 | `TestRoundRobinComplete` | every pair still meets twice, once at each ground |
 | `TestMultiSeason` | three seasons leave league sizes, squads and ages intact |
 | `TestSaveRoundTrip` | a save reloads and continues on the same random stream |
+| `TestSeasonStats` | the charts agree with the fixtures they were compiled from |
+| `TestStatsResetEachSeason` | no season tally survives the summer |
 | `TestScreensRender` | every screen renders at every cursor position |
 | `TestKeyNavigation` | every screen's key bindings move the cursor without panicking |
 | `TestTouchlineControl` | a match is managed from kickoff to full time by keypress |
