@@ -45,6 +45,10 @@ type World struct {
 	// ManagerName is the user's chosen name.
 	ManagerName string
 
+	// Shortlist holds the players the manager is keeping an eye on. It belongs to
+	// the manager rather than the club, so it survives a change of job.
+	Shortlist []uint32
+
 	Seed uint64 // master RNG seed, keeps a save deterministic
 }
 

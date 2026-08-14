@@ -38,6 +38,12 @@ func WindowName(d model.Date) string {
 // market value, discounts a short contract, and adds a premium for a player the
 // club actually depends on.
 func AskingPrice(w *model.World, p *model.Player) int64 {
+	return askingPrice(w, p, squadRank(w, p))
+}
+
+// askingPrice is AskingPrice with the player's place in their club's pecking
+// order already known, since establishing it is the expensive half of the sum.
+func askingPrice(w *model.World, p *model.Player, rank int) int64 {
 	age := w.Age(p)
 	base := dev.Value(p, age)
 	years := int(p.ContractUntil) - w.Date.SeasonYear()
@@ -45,7 +51,7 @@ func AskingPrice(w *model.World, p *model.Player) int64 {
 
 	// Clubs charge a premium for players who are central to the first team.
 	if c := w.Club(p.ClubID); c != nil {
-		if rank := squadRank(w, p); rank >= 0 && rank < 11 {
+		if rank >= 0 && rank < 11 {
 			price = price * 128 / 100
 		} else if rank >= 20 {
 			price = price * 82 / 100 // surplus to requirements
@@ -76,6 +82,52 @@ func squadRank(w *model.World, p *model.Player) int {
 		}
 	}
 	return rank
+}
+
+// PriceList quotes a whole market at once.
+//
+// A single AskingPrice has to work out where the player stands in their club's
+// pecking order, which costs a pass over the world; asking it player by player
+// makes pricing every player in the game quadratic, and slow enough that a
+// search cannot be run on every keystroke. Establishing every pecking order in
+// one pass up front makes the search linear again.
+type PriceList struct {
+	w    *model.World
+	rank []int32 // by player ID minus one; -1 for a free agent
+}
+
+// NewPriceList ranks every squad in the world by ability, ready for pricing.
+func NewPriceList(w *model.World) *PriceList {
+	pl := &PriceList{w: w, rank: make([]int32, len(w.Players))}
+
+	byClub := make(map[uint16][]uint32, len(w.Clubs))
+	ability := make([]float64, len(w.Players))
+	for i := range w.Players {
+		p := &w.Players[i]
+		if p.ClubID == 0 {
+			pl.rank[i] = -1
+			continue
+		}
+		ability[i] = p.CurrentAbility()
+		byClub[p.ClubID] = append(byClub[p.ClubID], p.ID)
+	}
+	for _, ids := range byClub {
+		sort.SliceStable(ids, func(a, b int) bool {
+			return ability[ids[a]-1] > ability[ids[b]-1]
+		})
+		for rank, id := range ids {
+			pl.rank[id-1] = int32(rank)
+		}
+	}
+	return pl
+}
+
+// Ask is what the player's club wants for them.
+func (pl *PriceList) Ask(p *model.Player) int64 {
+	if p == nil || int(p.ID) > len(pl.rank) {
+		return 0
+	}
+	return askingPrice(pl.w, p, int(pl.rank[p.ID-1]))
 }
 
 // Offer is a bid for a player.
@@ -115,9 +167,7 @@ func Consider(w *model.World, r *rng.R, o Offer) Response {
 		res.ClubAccepted = true // free agent, nobody to negotiate with
 	} else {
 		ask := AskingPrice(w, p)
-		// Clubs will haggle down to a little under the asking price.
-		floor := ask * 92 / 100
-		if o.Fee >= floor {
+		if o.Fee >= HaggleFloor(ask) {
 			res.ClubAccepted = true
 		} else {
 			res.ClubCounter = ask
@@ -126,14 +176,34 @@ func Consider(w *model.World, r *rng.R, o Offer) Response {
 	}
 
 	// ---- the player ----
-	age := w.Age(p)
-	want := dev.WageFor(p, age, buyer.Reputation)
+	demand, prestige := WageDemand(w, p, buyer)
+	res.WageDemand = demand
+
+	switch {
+	case o.Wage >= demand:
+		res.PlayerAccepted = true
+	case prestige > 22 && float64(o.Wage) >= float64(demand)*0.88:
+		res.PlayerAccepted = true // tempted by the step up
+	default:
+		if res.Reason == "" {
+			res.Reason = "The player is not satisfied with the terms."
+		}
+	}
+	return res
+}
+
+// WageDemand is the weekly wage a player would want to join a club, along with
+// how much of a step up the move is. It draws no randomness, so a manager may
+// ask what a signing would cost as often as they like without moving the market.
+func WageDemand(w *model.World, p *model.Player, buyer *model.Club) (wage uint32, prestige float64) {
+	if p == nil || buyer == nil {
+		return 0, 0
+	}
+	want := dev.WageAsk(p, w.Age(p), buyer.Reputation)
 
 	// Players weigh the move itself, not only the money: dropping down the
 	// pyramid needs compensating, moving up is attractive on its own.
-	current := w.Club(p.ClubID)
-	prestige := 0.0
-	if current != nil {
+	if current := w.Club(p.ClubID); current != nil {
 		prestige = float64(buyer.Reputation) - float64(current.Reputation)
 	} else {
 		prestige = 10 // any club beats being unemployed
@@ -143,20 +213,19 @@ func Consider(w *model.World, r *rng.R, o Offer) Response {
 	if demand < float64(want)*0.6 {
 		demand = float64(want) * 0.6
 	}
-	res.WageDemand = uint32(demand)
-
-	switch {
-	case float64(o.Wage) >= demand:
-		res.PlayerAccepted = true
-	case prestige > 22 && float64(o.Wage) >= demand*0.88:
-		res.PlayerAccepted = true // tempted by the step up
-	default:
-		if res.Reason == "" {
-			res.Reason = "The player is not satisfied with the terms."
-		}
+	// The step up is worth taking less to get, but not less than the player is
+	// already on: a discount off an anchored ask must not reintroduce the pay
+	// cut the anchor exists to prevent.
+	if p.ClubID != 0 && demand < float64(p.WageEUR) {
+		demand = float64(p.WageEUR)
 	}
-	return res
+	return uint32(demand), prestige
 }
+
+// HaggleFloor is the least a selling club will take for a player: they will
+// come down a little from the asking price, but not far. A manager who knows
+// the floor can save the difference, which is what makes bidding a decision.
+func HaggleFloor(ask int64) int64 { return ask * 92 / 100 }
 
 // CanAfford reports whether a club can fund a transfer without breaking its
 // budget, and explains why not when it cannot.
@@ -198,9 +267,11 @@ func Complete(w *model.World, o Offer) {
 	p.Form = 0
 }
 
-// need scores how badly a club wants reinforcement in a position, from the
-// depth and quality it already has there.
-func need(w *model.World, clubID uint16, pos model.Pos) float64 {
+// Need scores how badly a club wants reinforcement in a position, from the
+// depth and quality it already has there. The AI market uses it to decide what
+// to buy; a human manager is shown the same judgement rather than a second one
+// invented for the interface.
+func Need(w *model.World, clubID uint16, pos model.Pos) float64 {
 	var best, second float64
 	count := 0
 	for i := range w.Players {
@@ -252,7 +323,7 @@ func RunAI(w *model.World, r *rng.R, deals int) []string {
 		var wantPos model.Pos
 		bestNeed := 0.0
 		for _, pos := range buyer.Tactics.Formation.Slots() {
-			if s := need(w, buyer.ID, pos); s > bestNeed {
+			if s := Need(w, buyer.ID, pos); s > bestNeed {
 				bestNeed, wantPos = s, pos
 			}
 		}
@@ -266,7 +337,7 @@ func RunAI(w *model.World, r *rng.R, deals int) []string {
 		}
 
 		fee := AskingPrice(w, target)
-		wage := dev.WageFor(target, w.Age(target), buyer.Reputation)
+		wage := dev.WageAsk(target, w.Age(target), buyer.Reputation)
 		if ok, _ := CanAfford(w, buyer.ID, fee, wage); !ok {
 			continue
 		}

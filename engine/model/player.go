@@ -196,6 +196,20 @@ func (p *Player) Primary() Pos {
 	return p.Positions[0]
 }
 
+// NaturalPositions returns every position the player is natural in, best first.
+// Most players in the dataset list two or three, and which ones they are decides
+// where they can be fielded without the familiarity penalty Rating applies.
+func (p *Player) NaturalPositions() []Pos {
+	n := int(p.NumPositions)
+	if n > 3 {
+		n = 3
+	}
+	if n == 0 {
+		return []Pos{p.Primary()}
+	}
+	return p.Positions[:n]
+}
+
 // PlaysPos reports whether the player lists pos among their natural positions.
 func (p *Player) PlaysPos(pos Pos) bool {
 	for i := uint8(0); i < p.NumPositions && i < 3; i++ {

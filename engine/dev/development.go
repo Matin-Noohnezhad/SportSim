@@ -398,3 +398,20 @@ func WageFor(p *model.Player, age int, clubRep uint8) uint32 {
 	}
 	return uint32(base)
 }
+
+// WageAsk is what a particular player will actually sign for, as opposed to
+// what a player of their standing is worth in the abstract.
+//
+// The two differ because the curve WageFor draws is flatter than the wages the
+// squads were imported on: it is close to right through the middle of the
+// league but quotes an international at a quarter of what he already earns.
+// Nobody moves club for a pay cut of that size, and a club's wage budget is
+// derived from what it really pays, so anchoring the ask at the player's
+// current terms keeps demands and budgets on the same scale. Without it, every
+// signing halves the buyer's wage bill and the market has no cost at all.
+func WageAsk(p *model.Player, age int, clubRep uint8) uint32 {
+	if want := WageFor(p, age, clubRep); want > p.WageEUR {
+		return want
+	}
+	return p.WageEUR
+}

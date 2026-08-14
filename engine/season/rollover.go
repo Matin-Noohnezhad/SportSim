@@ -168,7 +168,7 @@ func expireContracts(w *model.World, r *rng.R, out *Outcome) {
 				years = 2
 			}
 			p.ContractUntil = uint16(year + years)
-			p.WageEUR = dev.WageFor(p, age, c.Reputation)
+			p.WageEUR = dev.WageAsk(p, age, c.Reputation)
 			continue
 		}
 		p.ClubID = 0 // released, now a free agent
