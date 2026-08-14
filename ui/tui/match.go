@@ -363,5 +363,7 @@ func (m *Model) shapePanel() string {
 
 	b.WriteString("\n  " + stMuted.Render(
 		"[←/→] adjust   [esc] back to the match   changing shape keeps the same eleven on the pitch") + "\n")
+	b.WriteString("  " + stMuted.Render(
+		"Touchline changes last this match only; the tactics screen sets the club's shape for good.") + "\n")
 	return b.String()
 }

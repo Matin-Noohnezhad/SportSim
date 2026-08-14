@@ -185,6 +185,16 @@ few simulated seasons.
     so weigh it, and bump `store.formatVersion` when you do — see invariant 5.
     The statistics tabs do not stop the clock: the touchline panels of invariant 10 are decisions
     and pause the match, a page of figures is not.
+
+    A touchline decision is also **spent when the whistle goes**. Shape, instructions and
+    substitutions all live on the `match.Side`, which is built fresh from `Club.Tactics`,
+    `Club.Lineup` and `Club.Bench` at every kickoff and thrown away at full time, so a manager who
+    goes three at the back to see out a lead has not asked to play that way in November. Nothing on
+    `LiveMatch` may write back to the club — `SetFormation` and `SetTactics` once did, and it
+    quietly rewrote a selection the manager had made in cold blood. The lasting decisions are made
+    on the squad and tactics screens through `Game.SetFormation`, `AutoSelect` and `SwapLineup`,
+    which are the only places `Club.Tactics`/`Lineup`/`Bench` change (besides
+    `season.Rollover`'s summer clear-out). `TestTouchlineChangesAreForOneMatch` guards it.
 13. **Asking what a signing would cost must not cost anything.** `game.Quote` and
     `transfer.WageDemand` draw no randomness and change no state, so the market screen can price
     a player on every keystroke and open a bid panel without the act of looking altering what

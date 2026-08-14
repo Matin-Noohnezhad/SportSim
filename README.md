@@ -86,8 +86,14 @@ into a decision. Five substitutions, and a goalkeeper can only be replaced by a
 goalkeeper. Changing formation keeps the same eleven on the pitch — they move
 into the new shape, your keeper stays in goal.
 
-Two things worth knowing. While you are on the touchline the rest of the day is
-held back: the other results, wages and the calendar only move once you leave.
+**Everything you do from the dugout lasts ninety minutes and no longer.** Go
+three at the back to see out a lead, throw a striker on, push the line up chasing
+a goal — at full time the club reverts to the shape, instructions and eleven you
+picked on the squad and tactics screens. Those are the lasting decisions, and
+they are where a permanent change is made; the touchline is for this match.
+
+Two more things worth knowing. While you are on the touchline the rest of the day
+is held back: the other results, wages and the calendar only move once you leave.
 And the engine stops picking your substitutions the moment you take charge — it
 will still force a change if you leave an injured player on, but the rest are
 yours to spend. Watch with `L` off and it manages the match for you, as before.
@@ -378,6 +384,7 @@ go test ./...
 | `TestLiveEqualsSim` | a match watched in fragments is identical to one played straight through |
 | `TestTakeChargeKeepsSubs` | the engine does not spend a manager's substitutions |
 | `TestLiveSubstitution` `TestLiveReshape` | touchline changes land, and obey the rules of the game |
+| `TestTouchlineChangesAreForOneMatch` | nothing decided in the dugout outlives the final whistle |
 | `TestVenueAlternation` | no club plays three league games running at the same ground |
 | `TestRoundRobinComplete` | every pair still meets twice, once at each ground |
 | `TestMultiSeason` | three seasons leave league sizes, squads and ages intact |
