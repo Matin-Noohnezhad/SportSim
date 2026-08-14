@@ -21,7 +21,8 @@ current EA FC data.
    4. Brighton & Hove Albion    15   9   4   2   23    9   +14   31  WLWDDD
 
   CLUB
-  Balance €36.9M    Transfer budget €121.4M    Wages €3.4M of €3.9M per week
+  Balance €36.9M    Transfer budget €121.4M    Revenue €174.5M per season
+  Wages €3.4M of €3.9M per week    Running costs €2.0M per week
   Squad 23 players    Stadium 56,791    Reputation 94/100
 ```
 
@@ -214,6 +215,31 @@ Nobody moves club for a pay cut. A player under contract asks for at least what
 they already earn, which is what keeps wage demands and wage budgets — both
 derived from the squads as imported — on the same scale.
 
+## The club's money
+
+Four flows, all on the home screen:
+
+| | |
+|---|---|
+| **Gate receipts** | banked after every home match — the crowd that turned up × your ticket price |
+| **Prize money** | paid once, at the end of the season, scaled by where you finished: the champion takes the division's whole pot, the bottom club about a third of it |
+| **Wages** | out every Monday |
+| **Running costs** | out every Monday — the stadium, the staff, the academy, the training ground, travel |
+
+Running costs are sized against what the club earns rather than what it pays its
+players, so you cannot sell your way out of them. That is the trap to watch for
+after relegation: a wage bill that was comfortable in the top flight is not
+comfortable against a smaller pot, and the overheads do not fall to meet it.
+
+Your transfer budget is set at the summer rollover from what you actually have —
+roughly half of it — so a season spent in the red costs you the next one's
+signings as well.
+
+Two things are deliberately not modelled: commercial and sponsorship income, and
+any cost that isn't wages or general overheads. That mostly matters at the very
+top, where a handful of clubs — Real Madrid above all — carry wage bills bigger
+than their entire modelled revenue and will run at a loss whatever you do.
+
 ## Statistics
 
 `tab` on the league screen turns the table into the division's season in full:
@@ -385,9 +411,12 @@ go test ./...
 | `TestTakeChargeKeepsSubs` | the engine does not spend a manager's substitutions |
 | `TestLiveSubstitution` `TestLiveReshape` | touchline changes land, and obey the rules of the game |
 | `TestTouchlineChangesAreForOneMatch` | nothing decided in the dugout outlives the final whistle |
+| `TestClubHasGateIncome` | every club charges something at the turnstile |
+| `TestPrizeMoneyPaidOnce` | the rollover settles prize money and nothing else |
+| `TestRunningCostsScaleWithRevenue` | overheads follow what a club earns, not what it pays its players |
 | `TestVenueAlternation` | no club plays three league games running at the same ground |
 | `TestRoundRobinComplete` | every pair still meets twice, once at each ground |
-| `TestMultiSeason` | three seasons leave league sizes, squads and ages intact |
+| `TestMultiSeason` | three seasons leave league sizes, squads, ages and the money intact |
 | `TestSaveRoundTrip` | a save reloads and continues on the same random stream |
 | `TestSeasonStats` | the charts agree with the fixtures they were compiled from |
 | `TestMatchReport` | a match reopened from the fixture list reads as it did at full time |

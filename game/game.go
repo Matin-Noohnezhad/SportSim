@@ -155,9 +155,9 @@ func (g *Game) AdvanceDay() DayReport {
 		}
 	}
 
-	// 3. Wages, paid weekly on Mondays.
+	// 3. Wages and running costs, paid weekly on Mondays.
 	if w.Date.Weekday() == 1 {
-		g.payWages()
+		g.payBills()
 	}
 
 	// 4. Training and development, applied monthly.
@@ -360,8 +360,11 @@ func attendance(w *model.World, home, away *model.Club, r *rng.R) uint32 {
 	return uint32(float64(home.StadiumCap) * fill)
 }
 
-// payWages debits every club's weekly wage bill.
-func (g *Game) payWages() {
+// payBills debits every club's weekly outgoings: the wages, and the cost of
+// running the place. Both are charged together because a club meets them out of
+// the same money, and a manager who only ever saw the wage bill would not
+// understand where the rest of it went.
+func (g *Game) payBills() {
 	w := g.World
 	bill := make(map[uint16]int64, len(w.Clubs))
 	for i := range w.Players {
@@ -372,8 +375,11 @@ func (g *Game) payWages() {
 	}
 	for i := range w.Clubs {
 		c := &w.Clubs[i]
-		c.Balance -= bill[c.ID]
-		if c.IsHuman && c.Balance < 0 {
+		wasSolvent := c.Balance >= 0
+		c.Balance -= bill[c.ID] + season.RunningCosts(w, c)
+		// Only on the way down: repeating it every Monday of an overdrawn season
+		// would bury every other message in the inbox.
+		if c.IsHuman && wasSolvent && c.Balance < 0 {
 			g.post("board", fmt.Sprintf("The club is in the red: %s. The board is concerned.",
 				transfer.Money(c.Balance)))
 		}
@@ -534,6 +540,34 @@ func (g *Game) SquadOf(clubID uint16) []SquadRow {
 		})
 	}
 	return out
+}
+
+// Finances is the managed club's money, weekly except where noted. It is a
+// query rather than four separate ones because a balance only means anything
+// beside what is going out against it.
+type Finances struct {
+	Balance        int64
+	TransferBudget int64
+	Wages          int64
+	WageBudget     int64
+	RunningCosts   int64
+	Revenue        int64 // per season: the gate plus the division's prize money
+}
+
+// Finances reports what the managed club earns and spends.
+func (g *Game) Finances() Finances {
+	c := g.Club()
+	if c == nil {
+		return Finances{}
+	}
+	return Finances{
+		Balance:        c.Balance,
+		TransferBudget: c.TransferBudget,
+		Wages:          g.World.WageBill(c.ID),
+		WageBudget:     c.WageBudget,
+		RunningCosts:   season.RunningCosts(g.World, c),
+		Revenue:        season.Revenue(g.World, c),
+	}
 }
 
 // Table returns the standings for a league.

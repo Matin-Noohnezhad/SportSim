@@ -58,11 +58,13 @@ func payPrizeMoney(w *model.World, s *Schedule, out *Outcome) {
 				continue
 			}
 			// The champion takes the full pot; last place takes about a third.
+			//
+			// Prize money is all that is settled here. Gate receipts are banked
+			// match by match as they are taken, in game.playFixture, and adding a
+			// season's worth again at the rollover paid every club twice for the
+			// same nineteen home games.
 			share := 1.0 - 0.66*float64(i)/float64(n-1)
-			prize := int64(float64(l.PrizeMoney) * share)
-			// Gate receipts across the season, roughly nineteen home games.
-			gate := int64(c.StadiumCap) * int64(c.TicketPrice) * 19 * 82 / 100
-			c.Balance += prize + gate
+			c.Balance += int64(float64(l.PrizeMoney) * share)
 		}
 	}
 }

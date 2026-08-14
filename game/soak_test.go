@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"sportsim/engine/transfer"
 	"sportsim/game"
 	"sportsim/store"
 )
@@ -25,6 +26,7 @@ func TestMultiSeason(t *testing.T) {
 		l := &g.World.Leagues[i]
 		want[l.ID] = len(l.ClubIDs)
 	}
+	moneyAtKickoff := worldMoney(g)
 
 	seasons := 0
 	for day := 0; day < 3*400 && seasons < 3; day++ {
@@ -51,6 +53,29 @@ func TestMultiSeason(t *testing.T) {
 		if got := len(l.ClubIDs); got != want[l.ID] {
 			t.Errorf("%s has %d clubs, started with %d", l.Name, got, want[l.ID])
 		}
+	}
+
+	// The money has to stay coherent too, and it is the slowest thing in the game
+	// to go wrong: the four flows that make up a club's books — the gate and the
+	// prize pot in, wages and running costs out — only show they disagree over a
+	// span of seasons. Both directions are failures. Runaway growth means every
+	// club can afford everybody, which is what happened when gate receipts were
+	// paid twice and again when nothing but wages went out; a collapse means the
+	// board is bankrupt by the third Christmas.
+	if money := worldMoney(g); money < moneyAtKickoff || money > 6*moneyAtKickoff {
+		t.Errorf("the world holds %s after three seasons, started with %s",
+			transfer.Money(money), transfer.Money(moneyAtKickoff))
+	}
+	// Some clubs living beyond their means is football; most of them doing it is
+	// a broken economy.
+	red := 0
+	for i := range w.Clubs {
+		if w.Clubs[i].Balance < 0 {
+			red++
+		}
+	}
+	if red > len(w.Clubs)/5 {
+		t.Errorf("%d of %d clubs are in the red", red, len(w.Clubs))
 	}
 
 	// Every club must be able to field a team.
@@ -249,4 +274,13 @@ func TestSeasonCalibration(t *testing.T) {
 			t.Errorf("%s bottom club on %.0f pts (38-game equivalent), want 8-45", l.Name, nb)
 		}
 	}
+}
+
+// worldMoney totals what every club has in the bank.
+func worldMoney(g *game.Game) int64 {
+	var total int64
+	for i := range g.World.Clubs {
+		total += g.World.Clubs[i].Balance
+	}
+	return total
 }

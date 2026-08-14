@@ -273,9 +273,11 @@ func (m *Model) viewHome() string {
 
 	// Club standing and finances.
 	b.WriteString("  " + stHeader.Render("CLUB") + "\n")
-	wage := g.World.WageBill(c.ID)
-	b.WriteString(fmt.Sprintf("  Balance %s    Transfer budget %s    Wages %s of %s per week\n",
-		money(c.Balance), money(c.TransferBudget), money(wage), money(c.WageBudget)))
+	fin := g.Finances()
+	b.WriteString(fmt.Sprintf("  Balance %s    Transfer budget %s    Revenue %s per season\n",
+		money(fin.Balance), money(fin.TransferBudget), money(fin.Revenue)))
+	b.WriteString(fmt.Sprintf("  Wages %s of %s per week    Running costs %s per week\n",
+		money(fin.Wages), money(fin.WageBudget), money(fin.RunningCosts)))
 	b.WriteString(fmt.Sprintf("  Squad %d players    Stadium %s    Reputation %d/100    %s\n\n",
 		g.World.SquadSize(c.ID), comma(int64(c.StadiumCap)), c.Reputation,
 		stMuted.Render(transfer.WindowName(g.World.Date))))

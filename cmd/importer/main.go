@@ -380,7 +380,7 @@ func finaliseClubs(d *pack.Data, squads map[uint16][]int, leagueOf map[uint16]in
 		// deterministically so clubs of equal standing are not identical.
 		base := 2000 + math.Pow(float64(c.Reputation), 2.42)
 		c.StadiumCap = uint32(base * (0.85 + 0.30*jitter(c.Name)))
-		c.TicketPrice = uint32(12 + int(c.Reputation)/2)
+		c.TicketPrice = model.DefaultTicketPrice(c.Reputation)
 
 		sv, wb := squadValue[c.ID], wageBill[c.ID]
 
