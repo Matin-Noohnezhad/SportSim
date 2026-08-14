@@ -90,7 +90,14 @@ func (m *Model) footer() string {
 	case ScreenStats:
 		keys = "[←→] change division  [tab] back to the table  [space] advance day  [q] back"
 	case ScreenTransfers:
-		keys = "[/] search  [↑↓] move  [enter] bid  [v] profile  [q] back"
+		switch {
+		case m.mk.bid != nil:
+			keys = "[↑↓] field  [←→] adjust the offer  [enter] submit the bid  [esc] cancel"
+		case m.mk.focus != filterNone:
+			keys = "[type] filter  [←→] change  [tab] next filter  [enter] back to the list"
+		default:
+			keys = "[tab] filters  [↑↓] move  [enter] bid  [*] shortlist  [n] what you need  [o] sort  [c] clear  [v] profile  [q] back"
+		}
 	case ScreenFixtures:
 		keys = "[↑↓] move  [enter] match report  [space] advance day  [q] back"
 	case ScreenReport:
@@ -292,8 +299,8 @@ func (m *Model) viewSquad() string {
 	rows := m.g.Squad()
 	var b strings.Builder
 	b.WriteString("\n  " + stHeader.Render(fmt.Sprintf(
-		"%-3s %-22s %-4s %3s %4s %4s %5s %5s %5s %4s %3s %3s %6s %10s",
-		"", "NAME", "POS", "AGE", "RAT", "POT", "FIT", "MOR", "FORM", "APP", "G", "A", "AVG", "VALUE")) + "\n")
+		"%-3s %-20s %-11s %3s %4s %4s %5s %5s %5s %4s %3s %3s %6s %10s",
+		"", "NAME", "POSITION", "AGE", "RAT", "POT", "FIT", "MOR", "FORM", "APP", "G", "A", "AVG", "VALUE")) + "\n")
 
 	visible := m.height - 8
 	if visible < 5 {
@@ -308,9 +315,9 @@ func (m *Model) viewSquad() string {
 		r := rows[i]
 		sel := i == m.squadCur
 
-		name := trunc(r.Name, 22)
+		name := trunc(r.Name, 20)
 		if r.Status != "" {
-			name = trunc(r.Name, 15) + " " + stBad.Render(trunc(r.Status, 6))
+			name = trunc(r.Name, 13) + " " + stBad.Render(trunc(r.Status, 6))
 		}
 		avg := "  -  "
 		if r.AvgRating > 0 {
@@ -321,8 +328,10 @@ func (m *Model) viewSquad() string {
 			form = "0"
 		}
 
-		line := fmt.Sprintf("%-3d %-22s %-4s %3d %4s %4d %5d %5d %5s %4d %3d %3d %6s %10s",
-			i+1, name, r.Position, r.Age,
+		// Every position the player is natural in, not just their best: which of
+		// them a player covers is exactly what decides whether the squad has cover.
+		line := fmt.Sprintf("%-3d %-20s %-11s %3d %4s %4d %5d %5d %5s %4d %3d %3d %6s %10s",
+			i+1, name, trunc(r.Positions, 11), r.Age,
 			ratingStyle(r.Rating).Render(fmt.Sprintf("%d", r.Rating)), r.Potential,
 			r.Fitness, r.Morale, form, r.Apps, r.Goals, r.Assists, avg,
 			transfer.Money(r.Value))
@@ -741,51 +750,6 @@ func scorerLine(g *game.Game, f *season.Fixture) string {
 		}
 	}
 	return strings.Join(parts, ", ")
-}
-
-// ---------------- transfers ----------------
-
-func (m *Model) viewTransfers() string {
-	g := m.g
-	c := g.Club()
-	var b strings.Builder
-	b.WriteString("\n  " + stTitle.Render("Transfer market") + "   " +
-		stMuted.Render(transfer.WindowName(g.World.Date)) + "\n")
-	b.WriteString(fmt.Sprintf("  Budget %s    Wage room %s/wk\n\n",
-		money(c.TransferBudget), money(c.WageBudget-g.World.WageBill(c.ID))))
-
-	prompt := m.searchInput
-	if m.searchActive {
-		prompt += "▏"
-	}
-	b.WriteString("  " + stHeader.Render("SEARCH ") + stBold.Render(prompt) +
-		stMuted.Render("   press / to search by name, enter to bid") + "\n\n")
-
-	if len(m.searchResult) == 0 {
-		b.WriteString("  " + stMuted.Render("No players listed. Press / and type a name, then enter.") + "\n")
-		return b.String()
-	}
-
-	b.WriteString("  " + stHeader.Render(fmt.Sprintf("%-22s %-4s %3s %4s %4s %-20s %10s %9s",
-		"NAME", "POS", "AGE", "RAT", "POT", "CLUB", "ASKING", "WAGE")) + "\n")
-
-	visible := m.height - 12
-	if visible < 5 {
-		visible = 5
-	}
-	start := 0
-	if m.transferCur >= visible {
-		start = m.transferCur - visible + 1
-	}
-	for i := start; i < len(m.searchResult) && i < start+visible; i++ {
-		r := m.searchResult[i]
-		line := fmt.Sprintf("%-22s %-4s %3d %4s %4d %-20s %10s %9s",
-			trunc(r.Name, 22), r.Position, r.Age,
-			ratingStyle(r.Rating).Render(fmt.Sprintf("%d", r.Rating)), r.Potential,
-			trunc(r.Status, 20), transfer.Money(r.Value), transfer.Money(r.Wage))
-		b.WriteString("  " + m.selectable(line, i == m.transferCur) + "\n")
-	}
-	return b.String()
 }
 
 // ---------------- inbox ----------------

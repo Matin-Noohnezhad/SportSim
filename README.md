@@ -62,7 +62,7 @@ Saves live in `~/.sportsim/saves`.
 | `space` | advance one day |
 | `w` / `m` | fast-forward to your next match / 30 days |
 | `s` `t` `l` `f` `r` `i` | squad, tactics, league, fixtures, transfers, inbox |
-| `←` `→` | on the league screen, change division |
+| `←` `→` | on the league screen, change division; on the market, change the sort |
 | `tab` | switch view: the table and the season statistics, or a match report's pages |
 | `enter` | on the fixture list, open a played match's report |
 | `L` | toggle between a minute-by-minute feed and an instant result |
@@ -134,6 +134,79 @@ already played reopens it, months later, exactly as it read at full time. A
 played fixture keeps its box score and its incidents, and your own matches keep
 their player ratings too — the commentary is the one page a match you are no
 longer watching cannot offer.
+
+## The transfer market
+
+`r` opens the market on all 6,400-odd players in the world, best first. You
+narrow it down rather than guessing a name: the filter bar is always on screen,
+`tab` steps through it, and the list re-searches as you type.
+
+```
+  NAME [any           ]  POS ‹CM  ›  MAX AGE [23 ]  MIN RAT [80 ]  MAX FEE €M [any ]  SHOW ‹all players   ›
+  sorted by rating  ·  14 players
+
+  NAME                 POSITION    AGE  RAT  POT    FIT CLUB                  ASKING     WAGE
+ ★ J. Bellingham       CAM/CM       22   88   93  +4 CM Real Madrid          €332.7M    €200k
+   Pedri               CM/CDM/CAM   23   89   93  +5 CM FC Barcelona         €384.8M    €170k
+   W. Endrick          CM/CAM       21   82   90  +1 CM Olympique Lyonnais ⧗  €48.2M     €61k
+```
+
+Fields you type into are bracketed; fields that cycle through a list sit between
+arrows and move with `←` `→`. Three columns are worth explaining:
+
+- **POSITION** is every position the player is natural in, not just their best.
+  Two thirds of the database list two or three, and a search for a centre
+  midfielder that only looked at the first would miss most of them.
+- **FIT** is what signing them would actually do to your side: how many rating
+  points they would add over the best you already have, and where. A dash means
+  they would not improve you. It is the column that answers "good compared with
+  what?".
+- **ASKING** is the selling club's price, not the book value, and it turns red
+  when it is beyond your budget — such players are still listed, because you may
+  be planning a sale to fund the move. `⧗` beside a club marks a deal running
+  out at the end of the season, which is why the fee is a fraction of the value.
+
+| Key | Action |
+|---|---|
+| `tab` `shift+tab` | move between the results and the filter fields |
+| `/` | jump straight to the name filter |
+| `enter` | on the list, open the bid panel; in a filter, go back to the list |
+| `*` | shortlist a player, or take them off it |
+| `n` | fill the filters with the position your squad is thinnest in |
+| `o` `←` `→` | change the sort: rating, improvement, potential, age, fee, wage |
+| `c` | clear the filters |
+| `v` | full profile |
+
+The shortlist is kept with your career, so it survives a save. `SHOW` switches
+the list between everybody, your shortlist, free agents, and players whose
+contracts expire this summer.
+
+`enter` opens the negotiation panel rather than firing a blind bid. It tells you
+what the club wants and what the player wants, and opens pre-filled with terms
+that would be accepted — so signing someone you have already decided on is still
+`enter` `enter` — but the fee, the wage and the contract length are all yours to
+move first. Clubs will come down a little from the asking price and no further,
+so there is real money in trying.
+
+```
+  ╭─────────────────────────────────────────────────────────╮
+  │ Bid for B. Saka  RW/RM · 24 · rated 86, potential 88    │
+  │                                                         │
+  │   Arsenal want   €123.1M                                │
+  │   He wants       €230k/wk                               │
+  │                                                         │
+  │   Fee          €113.2M                                  │
+  │   Wage        €230k/wk                                  │
+  │   Years              4                                  │
+  │                                                         │
+  │   budget €158.2M · wage room €778.7k/wk                 │
+  │   [↑↓] field  [←→] adjust  [enter] submit  [esc] cancel │
+  ╰─────────────────────────────────────────────────────────╯
+```
+
+Nobody moves club for a pay cut. A player under contract asks for at least what
+they already earn, which is what keeps wage demands and wage budgets — both
+derived from the squads as imported — on the same scale.
 
 ## Statistics
 
@@ -313,6 +386,11 @@ go test ./...
 | `TestMatchReport` | a match reopened from the fixture list reads as it did at full time |
 | `TestFixtureReportNavigation` | the fixture list opens a played match by keypress |
 | `TestStatsResetEachSeason` | no season tally survives the summer |
+| `TestMarketSearch` | every filter bites, a player is found by any of their positions, and the whole market searches fast enough to run on a keystroke |
+| `TestQuoteIsFree` | pricing a signing moves no money, no player and no random state |
+| `TestShortlist` | the shortlist round-trips through the search scope |
+| `TestImprovementIsAgainstOurSquad` | the fit column measures a target against your own players, in a position they actually play |
+| `TestTransferMarket` | the market is filtered, sorted, shortlisted and bid on by keypress |
 | `TestScreensRender` | every screen renders at every cursor position |
 | `TestKeyNavigation` | every screen's key bindings move the cursor without panicking |
 | `TestTouchlineControl` | a match is managed from kickoff to full time by keypress |

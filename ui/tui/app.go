@@ -60,14 +60,11 @@ type Model struct {
 	tacticsCur  int
 	tableLeague uint16
 	fixtureCur  int
-	transferCur int
 	inboxCur    int
 	viewPlayer  uint32
 
-	// Transfer search.
-	searchInput  string
-	searchActive bool
-	searchResult []game.SquadRow
+	// The transfer market screen owns its own filters, results and bid panel.
+	mk *market
 
 	// Selection editing on the tactics screen.
 	swapFrom int
@@ -91,7 +88,7 @@ type Model struct {
 // New builds the starting model. When path is non-empty the career is loaded
 // from that save file instead of starting the new-game flow.
 func New(path string) (*Model, error) {
-	m := &Model{screen: ScreenNewGame, liveMode: true, swapFrom: -1}
+	m := &Model{screen: ScreenNewGame, liveMode: true, swapFrom: -1, mk: newMarket()}
 	if path != "" {
 		g, err := store.Load(path)
 		if err != nil {
@@ -168,9 +165,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.screen == ScreenNewGame {
 		return m.keyNewGame(msg)
 	}
-	if m.searchActive {
-		return m.keySearch(msg)
-	}
 
 	key := msg.String()
 
@@ -179,6 +173,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// manager cannot wander off to the transfer market mid-game.
 	if m.screen == ScreenMatch && m.mv != nil {
 		return m.keyMatch(key)
+	}
+
+	// The transfer market owns the keyboard the same way whenever a filter field
+	// or the bid panel has focus, so that typing a player's name cannot be read
+	// as a request to go to the squad screen.
+	if m.screen == ScreenTransfers && (m.mk.focus != filterNone || m.mk.bid != nil) {
+		return m.keyTransfers(key)
 	}
 
 	// Global bindings, available from every screen.
@@ -222,6 +223,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "r":
 		m.screen = ScreenTransfers
+		m.mk.apply(m.g)
 		return m, nil
 	case "i":
 		m.screen = ScreenInbox
@@ -580,62 +582,6 @@ func (m *Model) keyReport(key string) (tea.Model, tea.Cmd) {
 		m.reportTab = m.reportTab.shift(tabOverview, -1)
 	}
 	return m, nil
-}
-
-// ---------------- transfers ----------------
-
-func (m *Model) keyTransfers(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "/":
-		m.searchActive = true
-		m.searchInput = ""
-		return m, nil
-	case "enter":
-		if m.transferCur < len(m.searchResult) {
-			r := m.searchResult[m.transferCur]
-			ok, msg := m.g.Bid(r.PlayerID, r.Value, uint32(float64(r.Wage)*1.2)+1000, 4)
-			m.setStatus(msg, !ok)
-			if ok {
-				m.runSearch()
-			}
-		}
-		return m, nil
-	case "v":
-		if m.transferCur < len(m.searchResult) {
-			m.viewPlayer = m.searchResult[m.transferCur].PlayerID
-			m.prev = ScreenTransfers
-			m.screen = ScreenPlayer
-		}
-		return m, nil
-	}
-	return m.keyList(key, &m.transferCur, len(m.searchResult))
-}
-
-func (m *Model) keySearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter":
-		m.searchActive = false
-		m.runSearch()
-	case "esc":
-		m.searchActive = false
-	case "backspace":
-		if r := []rune(m.searchInput); len(r) > 0 {
-			m.searchInput = string(r[:len(r)-1])
-		}
-	default:
-		if s := msg.String(); len(s) == 1 {
-			m.searchInput += s
-		}
-	}
-	return m, nil
-}
-
-func (m *Model) runSearch() {
-	m.searchResult = m.g.Search(game.SearchFilter{
-		Name:     m.searchInput,
-		Position: model.NumPos, // no position filter
-	}, 200)
-	m.transferCur = 0
 }
 
 // ---------------- match ----------------

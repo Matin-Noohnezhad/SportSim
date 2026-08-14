@@ -9,7 +9,6 @@ package game
 import (
 	"fmt"
 	"math"
-	"sort"
 
 	"sportsim/assets"
 	"sportsim/engine/dev"
@@ -474,6 +473,7 @@ type SquadRow struct {
 	Fitness   int
 	Morale    int
 	Form      int
+	Positions string // every natural position, as "CAM/CM"
 	Nation    string
 	Value     int64
 	Wage      int64
@@ -514,6 +514,7 @@ func (g *Game) SquadOf(clubID uint16) []SquadRow {
 			PlayerID:  p.ID,
 			Name:      p.Name,
 			Position:  p.Primary().String(),
+			Positions: PositionList(p),
 			Age:       w.Age(p),
 			Rating:    int(math.Round(p.CurrentAbility())),
 			Potential: int(p.Potential),
@@ -543,91 +544,6 @@ func (g *Game) Table(leagueID uint16) []season.Row {
 // NextFixture returns the managed club's next match.
 func (g *Game) NextFixture() *season.Fixture {
 	return g.Sched.NextFor(g.World.HumanClubID)
-}
-
-// SearchPlayers finds transfer targets matching a name fragment and filters.
-type SearchFilter struct {
-	Name      string
-	MaxValue  int64
-	MinAge    int
-	MaxAge    int
-	Position  model.Pos
-	MinRating int
-}
-
-// Search returns players matching the filter, best first.
-func (g *Game) Search(f SearchFilter, limit int) []SquadRow {
-	w := g.World
-	out := make([]SquadRow, 0, limit*2)
-	for i := range w.Players {
-		p := &w.Players[i]
-		if p.Potential == 0 || p.ClubID == w.HumanClubID {
-			continue
-		}
-		age := w.Age(p)
-		if f.MinAge > 0 && age < f.MinAge {
-			continue
-		}
-		if f.MaxAge > 0 && age > f.MaxAge {
-			continue
-		}
-		if f.Position < model.NumPos && !p.PlaysPos(f.Position) {
-			continue
-		}
-		if f.MinRating > 0 && int(p.CurrentAbility()) < f.MinRating {
-			continue
-		}
-		if f.MaxValue > 0 && transfer.AskingPrice(w, p) > f.MaxValue {
-			continue
-		}
-		if f.Name != "" && !containsFold(p.Name, f.Name) && !containsFold(p.FullName, f.Name) {
-			continue
-		}
-		row := SquadRow{
-			PlayerID: p.ID, Name: p.Name, Position: p.Primary().String(), Age: age,
-			Rating: int(math.Round(p.CurrentAbility())), Potential: int(p.Potential),
-			Nation: w.NationName(p.NationID), Value: transfer.AskingPrice(w, p),
-			Wage: int64(p.WageEUR), Contract: int(p.ContractUntil),
-			Goals: int(p.Goals), Apps: int(p.Apps),
-			Status: w.ClubName(p.ClubID),
-		}
-		out = append(out, row)
-	}
-	sort.SliceStable(out, func(a, b int) bool { return out[a].Rating > out[b].Rating })
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out
-}
-
-func containsFold(hay, needle string) bool {
-	h, n := []rune(lower(hay)), []rune(lower(needle))
-	if len(n) == 0 || len(n) > len(h) {
-		return len(n) == 0
-	}
-	for i := 0; i+len(n) <= len(h); i++ {
-		ok := true
-		for j := range n {
-			if h[i+j] != n[j] {
-				ok = false
-				break
-			}
-		}
-		if ok {
-			return true
-		}
-	}
-	return false
-}
-
-func lower(s string) string {
-	r := []rune(s)
-	for i, c := range r {
-		if c >= 'A' && c <= 'Z' {
-			r[i] = c + 32
-		}
-	}
-	return string(r)
 }
 
 // ---------------------------------------------------------------- actions
@@ -764,7 +680,7 @@ func (g *Game) Sell(playerID uint32) (bool, string) {
 		return false, fmt.Sprintf("No club has come in for %s at %s.", p.Name, transfer.Money(ask))
 	}
 
-	wage := dev.WageFor(p, w.Age(p), best.Reputation)
+	wage := dev.WageAsk(p, w.Age(p), best.Reputation)
 	o := transfer.Offer{PlayerID: playerID, From: best.ID, Fee: ask, Wage: wage, Years: 3}
 	transfer.Complete(w, o)
 	msg := fmt.Sprintf("%s sold to %s for %s.", p.Name, best.Name, transfer.Money(ask))
@@ -780,7 +696,7 @@ func (g *Game) OfferContract(playerID uint32, wage uint32, years int) (bool, str
 		return false, "That player is not yours."
 	}
 	c := g.Club()
-	want := dev.WageFor(p, w.Age(p), c.Reputation)
+	want := dev.WageAsk(p, w.Age(p), c.Reputation)
 	if wage < want {
 		return false, fmt.Sprintf("%s is holding out for %s per week.", p.Name, transfer.Money(int64(want)))
 	}

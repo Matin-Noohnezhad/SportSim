@@ -58,6 +58,9 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   and the division's aggregate summary; a chart is a filter, a sort and a truncation over one pass
   of the players, so adding one is a call to `topBy`, not a new query.
   `game/report.go` builds the `MatchReport` both match screens draw — see invariant 12.
+  `game/transfers.go` owns the market: `Search` over a `SearchFilter`, the `Target` rows it
+  returns, the shortlist, and `Quote`/`Renewal`, which price a signing without committing to
+  it — see invariant 13.
   `AdvanceDay()` is the heartbeat: it plays the day's fixtures, applies recovery, pays wages on
   Mondays, trains on the 1st of the month, runs the AI market, then moves the clock. **A second
   frontend (HTTP, mobile) is a new package beside `ui/tui`, not a rewrite — so nothing that belongs
@@ -78,13 +81,20 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   **`engine/season`** owns calendar, tables and rollover, and is the one engine package that
   imports another (`engine/match`, for the box score and player lines a played `Fixture` keeps, so
   that a match report has a single definition);
-  **`engine/dev`** owns growth/decline/fitness/morale/valuation; **`engine/transfer`** owns pricing,
-  negotiation and the AI market; **`engine/rng`** is the single random source.
+  **`engine/dev`** owns growth/decline/fitness/morale/valuation; **`engine/transfer`** owns pricing
+  (`AskingPrice`, and `PriceList` for pricing a whole market at once), negotiation (`WageDemand`,
+  `Consider`, `HaggleFloor`) and the AI market (`Need`, `RunAI`); **`engine/rng`** is the single
+  random source.
 - **`ui/tui`** is Bubble Tea: `Model` in `app.go` (state + key handling), rendering in `view.go`,
-  the match feed and touchline panels in `match.go`, the tabbed match report in `report.go`, Lip
-  Gloss styles in `styles.go`. `ScreenMatch`
+  the match feed and touchline panels in `match.go`, the tabbed match report in `report.go`, the
+  transfer market in `transfers.go`, Lip Gloss styles in `styles.go`. `ScreenMatch`
   intercepts keys *before* the global bindings, because from the touchline `s` and `t` are the
-  substitution and shape panels rather than the squad and tactics screens. `ScreenTable` and
+  substitution and shape panels rather than the squad and tactics screens. `ScreenTransfers`
+  intercepts them the same way, but only while a filter field or the bid panel has focus: a
+  name being typed into the market must not be read as a request to change screen, and the
+  moment focus returns to the results the single letters are global bindings again. That is
+  what `market.focus == filterNone` means, and why every filter is edited through it rather
+  than through a modal search prompt. `ScreenTable` and
   `ScreenStats` are two views of one division and share `keyTable`, with `tab` between them; the
   charts sit two abreast on a wide terminal and stack on a narrow one, which is why `statRows` is
   told how many rows of them there will be.
@@ -100,6 +110,14 @@ few simulated seasons.
    `CurrentAbility()` is the rating in the player's best position. There is deliberately no "overall"
    field that could drift out of step with the attributes — do not add one, and do not cache ratings
    in a struct field. Training moves attributes; the rating follows.
+
+   A player has **up to three natural positions**, not one. The dataset's `player_positions` column
+   is comma-separated and `parsePositions` keeps all of it: of the 6,411 players in `world.dat`,
+   2,358 list one position, 2,133 list two and 1,920 list three. `Primary()` is only the first of
+   them; `NaturalPositions()` is all of them and `PlaysPos` tests the whole list. Anything that
+   asks "can this player do this job" — a search filter, a squad-depth count, the familiarity
+   penalty in `Rating` — must use the list, because a filter that consulted `Primary()` alone
+   would miss two thirds of the candidates.
 2. **Everything random comes from `engine/rng`.** Never use `math/rand`. `rng.Derive(seed, key)` gives
    a match its own generator keyed on the fixture, so a match is reproducible regardless of what else
    happened that day and adding a draw elsewhere does not shift match outcomes. Save files persist the
@@ -167,6 +185,29 @@ few simulated seasons.
     so weigh it, and bump `store.formatVersion` when you do — see invariant 5.
     The statistics tabs do not stop the clock: the touchline panels of invariant 10 are decisions
     and pause the match, a page of figures is not.
+13. **Asking what a signing would cost must not cost anything.** `game.Quote` and
+    `transfer.WageDemand` draw no randomness and change no state, so the market screen can price
+    a player on every keystroke and open a bid panel without the act of looking altering what
+    happens next. `TestQuoteIsFree` asserts the RNG state, the player's club and the budget are
+    all untouched by repeated quoting. This is the same bargain as invariant 6: a manager must
+    not be able to reroll an outcome by inspecting it. Anything the bid panel wants to show has
+    to be derivable without a draw — if a future negotiation needs randomness, it belongs in
+    `Consider` at the moment the offer is actually made, never in the quote.
+
+    Pricing the whole market is also a *linear* pass, not a quadratic one. `AskingPrice` consults
+    the player's place in their club's pecking order, which costs a scan of the world; asking it
+    six thousand times over is slow enough that the screen cannot re-search as the manager types.
+    `transfer.NewPriceList` establishes every pecking order once and `Search` prices from that.
+    Reaching for `AskingPrice` inside a loop over players puts the quadratic cost straight back.
+14. **Nobody moves club for a pay cut.** `dev.WageFor` draws the wage curve for a player of a
+    given standing, and it is flatter than the wages the squads were imported on: right through
+    the middle of the league, but a quarter of what an international already earns. Club wage
+    budgets, by contrast, come straight from the imported bill (`WageBudget = bill * 1.15`), so
+    quoting demands from the bare curve lets every signing halve the buyer's wage bill and the
+    market costs nothing. `dev.WageAsk` anchors the ask at the player's current terms, and every
+    negotiation — `transfer.WageDemand`, `RunAI`, `Sell`, `OfferContract`, `Renewal`, and the
+    renewals in `season.Rollover` — goes through it. `WageFor` is still correct for a player who
+    has no current deal to anchor on: a regen being generated, or a free agent being picked up.
 
 ### Calibration is a test, not a comment
 
