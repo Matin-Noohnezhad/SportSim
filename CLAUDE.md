@@ -57,6 +57,7 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   `game/stats.go` compiles the season's charts — scorers, assists, clean sheets, ratings, cards —
   and the division's aggregate summary; a chart is a filter, a sort and a truncation over one pass
   of the players, so adding one is a call to `topBy`, not a new query.
+  `game/report.go` builds the `MatchReport` both match screens draw — see invariant 12.
   `AdvanceDay()` is the heartbeat: it plays the day's fixtures, applies recovery, pays wages on
   Mondays, trains on the 1st of the month, runs the AI market, then moves the clock. **A second
   frontend (HTTP, mobile) is a new package beside `ui/tui`, not a rewrite — so nothing that belongs
@@ -74,11 +75,14 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   mechanics, `live.go` owns the clock (`Live`, and the touchline actions `Substitute`, `SetTactics`,
   `TakeCharge`), `side.go` turns a squad into eleven players and a strength. **New match logic goes in
   `Live.playMinute`, never in a caller** — a second minute loop is the one thing invariant 6 forbids.
-  **`engine/season`** owns calendar, tables and rollover;
+  **`engine/season`** owns calendar, tables and rollover, and is the one engine package that
+  imports another (`engine/match`, for the box score and player lines a played `Fixture` keeps, so
+  that a match report has a single definition);
   **`engine/dev`** owns growth/decline/fitness/morale/valuation; **`engine/transfer`** owns pricing,
   negotiation and the AI market; **`engine/rng`** is the single random source.
 - **`ui/tui`** is Bubble Tea: `Model` in `app.go` (state + key handling), rendering in `view.go`,
-  the match feed and touchline panels in `match.go`, Lip Gloss styles in `styles.go`. `ScreenMatch`
+  the match feed and touchline panels in `match.go`, the tabbed match report in `report.go`, Lip
+  Gloss styles in `styles.go`. `ScreenMatch`
   intercepts keys *before* the global bindings, because from the touchline `s` and `t` are the
   substitution and shape panels rather than the squad and tactics screens. `ScreenTable` and
   `ScreenStats` are two views of one division and share `keyTable`, with `tab` between them; the
@@ -151,6 +155,18 @@ few simulated seasons.
     cleared in `season.resetSeasonStats`**, or a striker carries ninety goals into next season
     (`TestStatsResetEachSeason`). Adding a field to the tallies also means bumping
     `store.formatVersion` — see invariant 5.
+12. **A match is shown through one report, however it is opened.** `game.MatchReport` is what both
+    match screens draw: the touchline builds one from the live `match.Result` every frame, the
+    fixture list rebuilds one from what `season.Fixture` kept of a match played months ago, and
+    `TestMatchReport` asserts the two agree field for field. Anything a screen wants to show about a
+    match belongs on that struct, filled in by both builders — a view that reaches past it into
+    `match.Result` works on the touchline and shows nothing from the fixture list. What a fixture
+    keeps is deliberately narrow: the box score and the incidents that decided the match (goals and
+    sendings-off), plus player ratings for the managed club's own matches only, since a division's
+    worth would be a squad of lines per fixture. Widening it costs the save file 4,676 times over,
+    so weigh it, and bump `store.formatVersion` when you do — see invariant 5.
+    The statistics tabs do not stop the clock: the touchline panels of invariant 10 are decisions
+    and pause the match, a page of figures is not.
 
 ### Calibration is a test, not a comment
 

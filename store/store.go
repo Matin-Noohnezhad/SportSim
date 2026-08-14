@@ -20,8 +20,10 @@ import (
 )
 
 // formatVersion is bumped whenever the saved layout changes. Version 2 added
-// the penalty and clean-sheet season tallies to a player.
-const formatVersion = 2
+// the penalty and clean-sheet season tallies to a player; version 3 gave a
+// played fixture the match report it keeps — box score, sendings-off and, for
+// the managed club's own matches, the player ratings.
+const formatVersion = 3
 
 // snapshot is the on-disk representation of a career.
 type snapshot struct {

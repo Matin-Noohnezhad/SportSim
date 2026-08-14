@@ -45,6 +45,8 @@ func (m *Model) View() string {
 		body = m.viewPlayerDetail()
 	case ScreenMatch:
 		body = m.viewMatch()
+	case ScreenReport:
+		body = m.viewReport()
 	case ScreenSeasonEnd:
 		body = m.viewSeasonEnd()
 	}
@@ -89,18 +91,22 @@ func (m *Model) footer() string {
 		keys = "[←→] change division  [tab] back to the table  [space] advance day  [q] back"
 	case ScreenTransfers:
 		keys = "[/] search  [↑↓] move  [enter] bid  [v] profile  [q] back"
+	case ScreenFixtures:
+		keys = "[↑↓] move  [enter] match report  [space] advance day  [q] back"
+	case ScreenReport:
+		keys = "[tab] [←→] change tab  [esc] back to the fixtures"
 	case ScreenMatch:
 		switch {
 		case m.mv == nil || m.mv.done:
-			keys = "[enter] continue"
+			keys = "[tab] [←→] change tab  [enter] continue"
 		case m.mv.panel == panelSubs:
 			keys = "[↑↓] move  [enter] choose  [esc] back to the match"
 		case m.mv.panel == panelShape:
 			keys = "[↑↓] move  [←→] change  [esc] back to the match"
 		case m.mv.managing():
-			keys = "[space] pause  [s] substitutions  [t] shape  [enter] skip to full time  [+/-] speed"
+			keys = "[space] pause  [s] subs  [t] shape  [tab] stats  [enter] skip to full time  [+/-] speed"
 		default:
-			keys = "[enter] skip to full time  [+/-] speed"
+			keys = "[tab] statistics  [enter] skip to full time  [+/-] speed"
 		}
 	case ScreenSeasonEnd:
 		keys = "[any key] continue to the new season"
@@ -229,7 +235,8 @@ func (m *Model) viewHome() string {
 		case 1:
 			when = "tomorrow"
 		}
-		b.WriteString("  " + stHeader.Render("NEXT MATCH") + "\n")
+		b.WriteString("  " + stHeader.Render("NEXT MATCH") +
+			stMuted.Render("   [f] fixtures and past match reports") + "\n")
 		b.WriteString(fmt.Sprintf("  %s (%s)  %s  %s\n\n",
 			stBold.Render(g.World.ClubName(opp)), venue,
 			stMuted.Render(f.Date.Short()), stMuted.Render("— "+when)))
@@ -643,34 +650,52 @@ func reds(n int) string {
 
 // ---------------- fixtures ----------------
 
-func (m *Model) viewFixtures() string {
-	g := m.g
-	c := g.Club()
-	var b strings.Builder
-	b.WriteString("\n  " + stTitle.Render("Fixtures and results") + "\n\n")
-
+// myFixtures is the managed club's whole season in date order, which both the
+// fixture list and its cursor are built on.
+func (m *Model) myFixtures() []*season.Fixture {
+	c := m.g.Club()
+	if c == nil {
+		return nil
+	}
 	var mine []*season.Fixture
-	for i := range g.Sched.Fixtures {
-		f := &g.Sched.Fixtures[i]
+	for i := range m.g.Sched.Fixtures {
+		f := &m.g.Sched.Fixtures[i]
 		if f.Home == c.ID || f.Away == c.ID {
 			mine = append(mine, f)
 		}
 	}
 	sort.SliceStable(mine, func(a, b int) bool { return mine[a].Date < mine[b].Date })
+	return mine
+}
 
+// nextFixtureIndex is where in the list the next unplayed match sits, or the
+// last one once the season is over.
+func nextFixtureIndex(fixtures []*season.Fixture) int {
+	for i, f := range fixtures {
+		if !f.Played {
+			return i
+		}
+	}
+	return max(0, len(fixtures)-1)
+}
+
+func (m *Model) viewFixtures() string {
+	g := m.g
+	c := g.Club()
+	var b strings.Builder
+	b.WriteString("\n  " + stTitle.Render("Fixtures and results") +
+		stMuted.Render("   enter on a played match for its report") + "\n\n")
+
+	mine := m.myFixtures()
 	visible := m.height - 8
 	if visible < 6 {
 		visible = 6
 	}
-	// Centre the list on the next unplayed match.
-	next := 0
-	for i, f := range mine {
-		if !f.Played {
-			next = i
-			break
-		}
+	// Keep the cursor in view, centred while there is a season either side of it.
+	start := max(0, m.fixtureCur-visible/2)
+	if start+visible > len(mine) {
+		start = max(0, len(mine)-visible)
 	}
-	start := max(0, next-visible/2)
 
 	for i := start; i < len(mine) && i < start+visible; i++ {
 		f := mine[i]
@@ -678,26 +703,28 @@ func (m *Model) viewFixtures() string {
 		if f.Away == c.ID {
 			opp, venue = g.World.ClubName(f.Home), "A"
 		}
+		var line string
 		if !f.Played {
-			b.WriteString(fmt.Sprintf("  %-12s %s  %-26s %s\n",
-				f.Date.Short(), venue, trunc(opp, 26), stMuted.Render("—")))
-			continue
+			line = fmt.Sprintf("%-12s %s  %-26s %s",
+				f.Date.Short(), venue, trunc(opp, 26), stMuted.Render("—"))
+		} else {
+			ours, theirs := int(f.HomeGoals), int(f.AwayGoals)
+			if f.Away == c.ID {
+				ours, theirs = theirs, ours
+			}
+			res, st := "D", stMuted
+			switch {
+			case ours > theirs:
+				res, st = "W", stGood
+			case ours < theirs:
+				res, st = "L", stBad
+			}
+			line = fmt.Sprintf("%-12s %s  %-26s %s %s",
+				f.Date.Short(), venue, trunc(opp, 26),
+				st.Render(fmt.Sprintf("%s %d-%d", res, ours, theirs)),
+				stMuted.Render(scorerLine(g, f)))
 		}
-		ours, theirs := int(f.HomeGoals), int(f.AwayGoals)
-		if f.Away == c.ID {
-			ours, theirs = theirs, ours
-		}
-		res, st := "D", stMuted
-		switch {
-		case ours > theirs:
-			res, st = "W", stGood
-		case ours < theirs:
-			res, st = "L", stBad
-		}
-		b.WriteString(fmt.Sprintf("  %-12s %s  %-26s %s %s\n",
-			f.Date.Short(), venue, trunc(opp, 26),
-			st.Render(fmt.Sprintf("%s %d-%d", res, ours, theirs)),
-			stMuted.Render(scorerLine(g, f))))
+		b.WriteString("  " + m.selectable(line, i == m.fixtureCur) + "\n")
 	}
 	return b.String()
 }
@@ -887,15 +914,6 @@ func trunc(s string, n int) string {
 		return string(r[:n])
 	}
 	return string(r[:n-1]) + "…"
-}
-
-func centre(s string, w int) string {
-	r := []rune(s)
-	if len(r) >= w {
-		return s
-	}
-	left := (w - len(r)) / 2
-	return strings.Repeat(" ", left) + s + strings.Repeat(" ", w-len(r)-left)
 }
 
 // lenVisible counts printable width, ignoring ANSI escape sequences.

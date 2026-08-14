@@ -34,6 +34,7 @@ const (
 	ScreenInbox
 	ScreenPlayer
 	ScreenMatch
+	ScreenReport
 	ScreenSeasonEnd
 )
 
@@ -74,6 +75,11 @@ type Model struct {
 	// Match viewing.
 	mv       *matchView
 	liveMode bool
+
+	// A match played earlier in the season, opened from the fixture list. It is
+	// the same report the touchline screen shows, minus the commentary.
+	report    *game.MatchReport
+	reportTab matchTab
 
 	// End-of-season report.
 	seasonReport []string
@@ -188,7 +194,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = ScreenHome
 		return m, nil
 	case "esc":
-		if m.screen == ScreenPlayer {
+		if m.screen == ScreenPlayer || m.screen == ScreenReport {
 			m.screen = m.prev
 		} else {
 			m.screen = ScreenHome
@@ -210,7 +216,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "f":
+		// Open the list on the match that matters now, the next one to be played.
 		m.screen = ScreenFixtures
+		m.fixtureCur = nextFixtureIndex(m.myFixtures())
 		return m, nil
 	case "r":
 		m.screen = ScreenTransfers
@@ -244,7 +252,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenTable, ScreenStats:
 		return m.keyTable(key)
 	case ScreenFixtures:
-		return m.keyList(key, &m.fixtureCur, 200)
+		return m.keyFixtures(key)
+	case ScreenReport:
+		return m.keyReport(key)
 	case ScreenTransfers:
 		return m.keyTransfers(key)
 	case ScreenInbox:
@@ -536,6 +546,42 @@ func (m *Model) keyTable(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// ---------------- fixtures and match reports ----------------
+
+// keyFixtures moves through the managed club's calendar and opens the report of
+// a match that has already been played.
+func (m *Model) keyFixtures(key string) (tea.Model, tea.Cmd) {
+	fixtures := m.myFixtures()
+	if key == "enter" {
+		if m.fixtureCur >= len(fixtures) {
+			return m, nil
+		}
+		rep := m.g.FixtureReport(fixtures[m.fixtureCur])
+		if rep == nil {
+			m.setStatus("That match has not been played yet.", true)
+			return m, nil
+		}
+		m.report, m.reportTab = rep, tabOverview
+		m.prev = ScreenFixtures
+		m.screen = ScreenReport
+		return m, nil
+	}
+	return m.keyList(key, &m.fixtureCur, len(fixtures))
+}
+
+// keyReport pages through a past match's tabs.
+func (m *Model) keyReport(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "enter":
+		m.screen = ScreenFixtures
+	case "tab", "right", "]":
+		m.reportTab = m.reportTab.shift(tabOverview, +1)
+	case "shift+tab", "left", "[":
+		m.reportTab = m.reportTab.shift(tabOverview, -1)
+	}
+	return m, nil
+}
+
 // ---------------- transfers ----------------
 
 func (m *Model) keyTransfers(key string) (tea.Model, tea.Cmd) {
@@ -626,6 +672,14 @@ func (m *Model) keyMatch(key string) (tea.Model, tea.Cmd) {
 		if mv.managing() {
 			mv.panel, mv.shapeCur = panelShape, 0
 		}
+		return m, nil
+	case "tab", "right", "]":
+		// The statistics tabs leave the clock running, so a manager who looks at
+		// the shot count does not have to restart the match afterwards.
+		mv.tab = mv.tab.shift(tabFeed, +1)
+		return m, nil
+	case "shift+tab", "left", "[":
+		mv.tab = mv.tab.shift(tabFeed, -1)
 		return m, nil
 	case "+", "=":
 		mv.faster()

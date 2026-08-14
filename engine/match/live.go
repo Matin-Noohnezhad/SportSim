@@ -171,6 +171,7 @@ func (l *Live) playMinute(minute int) {
 		att = 0
 	}
 	l.possMinutes[att]++
+	l.sharePossession()
 
 	// Fouls belong to the minute's defending side.
 	st.foulCheck(r, res, sides, uint8(1-att), uint8(minute))
@@ -233,12 +234,19 @@ func (l *Live) complete() {
 	l.res.Events = append(l.res.Events, Event{Minute: uint8(regulationMins), Team: 255, Type: EvFullTime,
 		Home: uint8(l.res.HomeGoals), Away: uint8(l.res.AwayGoals)})
 
-	// Possession percentages.
-	if tot := l.possMinutes[0] + l.possMinutes[1]; tot > 0 {
-		p := int(math.Round(float64(l.possMinutes[0]) * 100 / float64(tot)))
-		l.res.Stats[0].Possession = uint8(p)
-		l.res.Stats[1].Possession = uint8(100 - p)
-	}
-
 	l.st.finish(l.r, l.res, l.sides)
+}
+
+// sharePossession splits the minutes played so far between the two sides. It is
+// kept up to date every minute rather than worked out at full time so that a
+// manager watching the match can read the box score as it stands, and it draws
+// no randomness, so a match watched still comes out identical to one skipped.
+func (l *Live) sharePossession() {
+	tot := l.possMinutes[0] + l.possMinutes[1]
+	if tot == 0 {
+		return
+	}
+	p := int(math.Round(float64(l.possMinutes[0]) * 100 / float64(tot)))
+	l.res.Stats[0].Possession = uint8(p)
+	l.res.Stats[1].Possession = uint8(100 - p)
 }

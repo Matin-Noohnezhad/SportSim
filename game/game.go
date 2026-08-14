@@ -208,9 +208,11 @@ func (g *Game) playFixture(f *season.Fixture) *match.Result {
 	f.HomeGoals = uint8(res.HomeGoals)
 	f.AwayGoals = uint8(res.AwayGoals)
 	f.Attendance = att
+	f.Stats = res.Stats
 
 	for _, ev := range res.Events {
-		if ev.Type == match.EvGoal || ev.Type == match.EvPenaltyScored {
+		switch ev.Type {
+		case match.EvGoal, match.EvPenaltyScored:
 			f.Goals = append(f.Goals, season.Goal{
 				Minute:  ev.Minute,
 				Away:    ev.Team == 1,
@@ -218,7 +220,21 @@ func (g *Game) playFixture(f *season.Fixture) *match.Result {
 				Scorer:  ev.Player,
 				Assist:  ev.Other,
 			})
+		case match.EvRed, match.EvSecondYellow:
+			f.Reds = append(f.Reds, season.Dismissal{
+				Minute: ev.Minute,
+				Away:   ev.Team == 1,
+				Player: ev.Player,
+				Second: ev.Type == match.EvSecondYellow,
+			})
 		}
+	}
+
+	// Only the managed club's ratings are kept: they are the only ones the match
+	// report shows, and keeping every division's would grow a save file by a
+	// squad's worth of lines for every fixture of the season.
+	if ours := humanSide(w, res); ours >= 0 {
+		f.Lines = ourLines(res, ours)
 	}
 
 	// Season tallies, form and morale.

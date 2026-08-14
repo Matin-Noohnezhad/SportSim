@@ -31,9 +31,9 @@ current EA FC data.
 |---|---|
 | Binary | 6.1 MB, single file, no install |
 | Game database | 446 KB, embedded in the binary |
-| Memory in play | ~4 MB |
+| Memory in play | ~5 MB |
 | Startup | 20 ms |
-| Save file | ~580 KB |
+| Save file | ~830 KB, a season of match reports included |
 | Full European season | 4,676 matches in ~3 seconds |
 
 There is nothing to download at runtime and nothing to install. The whole
@@ -63,7 +63,8 @@ Saves live in `~/.sportsim/saves`.
 | `w` / `m` | fast-forward to your next match / 30 days |
 | `s` `t` `l` `f` `r` `i` | squad, tactics, league, fixtures, transfers, inbox |
 | `←` `→` | on the league screen, change division |
-| `tab` | on the league screen, switch between the table and the season statistics |
+| `tab` | switch view: the table and the season statistics, or a match report's pages |
+| `enter` | on the fixture list, open a played match's report |
 | `L` | toggle between a minute-by-minute feed and an instant result |
 | `S` | save |
 | `q` | back, or quit from the home screen |
@@ -76,6 +77,7 @@ change:
 | `space` | stop and restart the clock |
 | `s` | substitutions — pick who comes off, then who replaces them |
 | `t` | shape and instructions — formation, mentality, tempo, pressing and the rest |
+| `tab` `←` `→` | commentary, overview, key moments, player ratings |
 | `enter` | skip to full time; again to leave and let the day finish |
 | `+` / `-` | speed the feed up or slow it down |
 
@@ -89,6 +91,49 @@ held back: the other results, wages and the calendar only move once you leave.
 And the engine stops picking your substitutions the moment you take charge — it
 will still force a change if you leave an injured player on, but the rest are
 yours to spend. Watch with `L` off and it manages the match for you, as before.
+
+## Match reports
+
+Every match has four pages, and `tab` moves between them: the commentary, an
+overview, the key moments and your players' ratings. They are there while the
+match is being played — the clock keeps running behind them, so checking the
+shot count costs you nothing — and they are what the screen settles on at full
+time.
+
+```
+  COMMENTARY │ OVERVIEW │ KEY MOMENTS │ PLAYERS
+
+  MATCH STATS         Athletic Club  v  Girona FC
+
+  Possession              60%  ██████████████▒▒▒▒▒▒▒▒▒▒  40%
+  Shots                    18  █████████████████████▒▒▒  3
+  Shots on target           7  █████████████████████▒▒▒  1
+  Expected goals         2.61  ██████████████████████▒▒  0.22
+  Corners                   3  █████████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  5
+  Fouls                     9  █████████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  14
+  Offsides                  0  ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  1
+  Yellow cards              0  ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  3
+  Red cards                 0  ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  1
+```
+
+Key moments is the match in the half-dozen lines that decided it — the goals,
+who assisted them, which came from the spot, and the sendings-off — in the order
+they happened, with the score as it stood after each:
+
+```
+   MIN  EVENT          PLAYER               ASSIST               CLUB               SCORE
+    1'  GOAL           Jauregizar           Nico Williams        Athletic Club      1-0
+    6'  GOAL           Iñaki Williams       Nico Williams        Athletic Club      2-0
+   26'  RED CARD       David López                               Girona FC
+   81'  PENALTY        Sancet                                    Athletic Club      3-0
+   84'  GOAL           Nico Williams        Yuri Berchiche       Athletic Club      4-0
+```
+
+The same report is on `f`, the fixture list: `enter` on any match you have
+already played reopens it, months later, exactly as it read at full time. A
+played fixture keeps its box score and its incidents, and your own matches keep
+their player ratings too — the commentary is the one page a match you are no
+longer watching cannot offer.
 
 ## Statistics
 
@@ -265,6 +310,8 @@ go test ./...
 | `TestMultiSeason` | three seasons leave league sizes, squads and ages intact |
 | `TestSaveRoundTrip` | a save reloads and continues on the same random stream |
 | `TestSeasonStats` | the charts agree with the fixtures they were compiled from |
+| `TestMatchReport` | a match reopened from the fixture list reads as it did at full time |
+| `TestFixtureReportNavigation` | the fixture list opens a played match by keypress |
 | `TestStatsResetEachSeason` | no season tally survives the summer |
 | `TestScreensRender` | every screen renders at every cursor position |
 | `TestKeyNavigation` | every screen's key bindings move the cursor without panicking |

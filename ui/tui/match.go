@@ -42,6 +42,11 @@ type matchView struct {
 	paused bool
 	done   bool
 
+	// tab is which page of the match is on screen. The statistics pages do not
+	// stop the clock: they are a way of watching the match, not a decision to
+	// be made, and the feed carries on collecting behind them.
+	tab matchTab
+
 	// Touchline controls.
 	panel    matchPanel
 	pitchCur int
@@ -95,7 +100,7 @@ func (mv *matchView) advance() {
 		mv.minute = mv.live.Minute()
 		mv.reveal()
 		if mv.live.Done() {
-			mv.done = true
+			mv.whistle()
 		}
 		return
 	}
@@ -122,11 +127,25 @@ func (mv *matchView) reveal() {
 			mv.feed = append(mv.feed, fmt.Sprintf("%3d'  %s", e.Minute, line))
 		}
 		if e.Type == match.EvFullTime {
-			mv.done = true
+			mv.whistle()
 			return
 		}
 	}
 }
+
+// whistle ends the match and turns the screen into the match report, which is
+// what a manager wants once there is nothing left to watch. The commentary is
+// still a tab away, and now holds the whole ninety minutes.
+func (mv *matchView) whistle() {
+	mv.done = true
+	if mv.tab == tabFeed {
+		mv.tab = tabOverview
+	}
+}
+
+// report is the match as the statistics tabs draw it, rebuilt each frame so a
+// watched match's figures move with the clock.
+func (mv *matchView) report() *game.MatchReport { return mv.g.ResultReport(mv.res) }
 
 // finish plays or reveals the rest of the match at once.
 func (mv *matchView) finish() {
@@ -142,7 +161,7 @@ func (mv *matchView) finish() {
 		}
 	}
 	mv.panel = panelNone
-	mv.done = true
+	mv.whistle()
 }
 
 func (mv *matchView) faster() {
@@ -207,6 +226,12 @@ func (m *Model) viewMatch() string {
 		return b.String()
 	}
 
+	b.WriteString(tabBar(mv.tab, tabFeed))
+	if mv.tab != tabFeed {
+		b.WriteString(m.reportBody(mv.report(), mv.tab))
+		return b.String()
+	}
+
 	// Commentary feed, showing the most recent lines that fit on screen.
 	height := m.height - 16
 	if height < 6 {
@@ -233,11 +258,6 @@ func (m *Model) viewMatch() string {
 			style = stMuted
 		}
 		b.WriteString("  " + style.Render(line) + "\n")
-	}
-
-	if mv.done {
-		b.WriteString("\n")
-		b.WriteString(m.matchStats())
 	}
 	return b.String()
 }
@@ -343,61 +363,5 @@ func (m *Model) shapePanel() string {
 
 	b.WriteString("\n  " + stMuted.Render(
 		"[←/→] adjust   [esc] back to the match   changing shape keeps the same eleven on the pitch") + "\n")
-	return b.String()
-}
-
-// matchStats renders the box score and the managed club's player ratings.
-func (m *Model) matchStats() string {
-	mv := m.mv
-	res := mv.res
-	var b strings.Builder
-
-	row := func(label string, hv, av string) {
-		b.WriteString(fmt.Sprintf("  %8s  %-22s  %-8s\n", hv, centre(label, 22), av))
-	}
-	b.WriteString(stHeader.Render("  HOME      MATCH STATS             AWAY") + "\n")
-	row("Possession", fmt.Sprintf("%d%%", res.Stats[0].Possession), fmt.Sprintf("%d%%", res.Stats[1].Possession))
-	row("Shots", fmt.Sprint(res.Stats[0].Shots), fmt.Sprint(res.Stats[1].Shots))
-	row("On target", fmt.Sprint(res.Stats[0].OnTarget), fmt.Sprint(res.Stats[1].OnTarget))
-	row("Expected goals", fmt.Sprintf("%.2f", res.Stats[0].XG), fmt.Sprintf("%.2f", res.Stats[1].XG))
-	row("Corners", fmt.Sprint(res.Stats[0].Corners), fmt.Sprint(res.Stats[1].Corners))
-	row("Fouls", fmt.Sprint(res.Stats[0].Fouls), fmt.Sprint(res.Stats[1].Fouls))
-	row("Cards", fmt.Sprintf("%dy %dr", res.Stats[0].Yellows, res.Stats[0].Reds),
-		fmt.Sprintf("%dy %dr", res.Stats[1].Yellows, res.Stats[1].Reds))
-
-	// Ratings for the managed club only.
-	ours := uint8(0)
-	if res.AwayClub == m.g.World.HumanClubID {
-		ours = 1
-	}
-	b.WriteString("\n" + stHeader.Render("  YOUR PLAYERS                MIN   G   A  RATING") + "\n")
-	for _, ln := range res.Lines {
-		if ln.Team != ours || ln.Minutes == 0 {
-			continue
-		}
-		p := m.g.World.Player(ln.PlayerID)
-		if p == nil {
-			continue
-		}
-		mark := ""
-		switch {
-		case ln.Red:
-			mark = stBad.Render(" R")
-		case ln.Yellow:
-			mark = stWarn.Render(" Y")
-		case ln.Injury > 0:
-			mark = stBad.Render(" +")
-		}
-		rs := stGood
-		switch {
-		case ln.Rating < 6:
-			rs = stBad
-		case ln.Rating < 7:
-			rs = stMuted
-		}
-		b.WriteString(fmt.Sprintf("  %-24s %5d %3d %3d   %s%s\n",
-			trunc(p.Name, 24), ln.Minutes, ln.Goals, ln.Assists,
-			rs.Render(fmt.Sprintf("%.1f", ln.Rating)), mark))
-	}
 	return b.String()
 }

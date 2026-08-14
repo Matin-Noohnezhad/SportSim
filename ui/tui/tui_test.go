@@ -34,17 +34,35 @@ func TestScreensRender(t *testing.T) {
 	m.viewPlayer = g.Squad()[0].PlayerID
 	m.seasonReport = []string{"Someone wins the league."}
 
+	m.report = g.FixtureReport(g.Sched.RecentFor(g.Club().ID, 1)[0])
+
 	screens := map[string]Screen{
 		"home": ScreenHome, "squad": ScreenSquad, "tactics": ScreenTactics,
 		"table": ScreenTable, "stats": ScreenStats, "fixtures": ScreenFixtures, "transfers": ScreenTransfers,
 		"inbox": ScreenInbox, "player": ScreenPlayer, "match": ScreenMatch,
-		"seasonEnd": ScreenSeasonEnd, "newGame": ScreenNewGame,
+		"report": ScreenReport, "seasonEnd": ScreenSeasonEnd, "newGame": ScreenNewGame,
 	}
 	for name, sc := range screens {
 		m.screen = sc
 		out := m.View()
 		if strings.TrimSpace(out) == "" {
 			t.Errorf("%s screen rendered nothing", name)
+		}
+	}
+
+	// Every tab of a match report is a layout of its own, on both the screen a
+	// match is watched on and the one a past match is opened on.
+	for tb := tabFeed; tb < numMatchTabs; tb++ {
+		m.screen, m.mv.tab = ScreenMatch, tb
+		if strings.TrimSpace(m.View()) == "" {
+			t.Errorf("match tab %s rendered nothing", matchTabNames[tb])
+		}
+		if tb == tabFeed {
+			continue // a stored match keeps no commentary
+		}
+		m.screen, m.reportTab = ScreenReport, tb
+		if strings.TrimSpace(m.View()) == "" {
+			t.Errorf("report tab %s rendered nothing", matchTabNames[tb])
 		}
 	}
 
@@ -228,6 +246,79 @@ func TestTouchlineControl(t *testing.T) {
 		if !played {
 			t.Error("the watched match was never recorded")
 		}
+	}
+}
+
+// TestFixtureReportNavigation opens a match played earlier in the season from
+// the fixture list, the way a manager looking back over a result would: press f
+// for the calendar, move up to a match already played, and open it.
+func TestFixtureReportNavigation(t *testing.T) {
+	g, _ := game.New("Tester", 1, 31)
+	g.AutoSelect()
+	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, liveMode: false}
+	m.tableLeague = g.Club().LeagueID
+	for i := 0; i < 60; i++ {
+		g.AdvanceDay()
+	}
+
+	press := func(k string) {
+		t.Helper()
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+		switch k {
+		case "up", "down", "enter", "esc", "tab":
+			msg = tea.KeyMsg{Type: keyType(k)}
+		}
+		var mm tea.Model = m
+		mm, _ = m.Update(msg)
+		m = mm.(*Model)
+		if strings.TrimSpace(m.View()) == "" && !m.quitting {
+			t.Fatalf("blank screen after key %q", k)
+		}
+	}
+
+	// The list opens on the next match to be played, which has no report yet.
+	press("f")
+	fixtures := m.myFixtures()
+	if m.fixtureCur != nextFixtureIndex(fixtures) {
+		t.Fatalf("cursor at %d, want the next unplayed match at %d",
+			m.fixtureCur, nextFixtureIndex(fixtures))
+	}
+	press("enter")
+	if m.screen == ScreenReport {
+		t.Error("an unplayed fixture opened a match report")
+	}
+
+	// The one before it has been played, so it has.
+	press("up")
+	played := fixtures[m.fixtureCur]
+	if !played.Played {
+		t.Fatal("the fixture above the next one has not been played")
+	}
+	press("enter")
+	if m.screen != ScreenReport || m.report == nil {
+		t.Fatal("enter did not open the match report")
+	}
+	if m.report.HomeGoals != int(played.HomeGoals) || m.report.AwayGoals != int(played.AwayGoals) {
+		t.Errorf("report shows %d-%d, the fixture was %d-%d",
+			m.report.HomeGoals, m.report.AwayGoals, played.HomeGoals, played.AwayGoals)
+	}
+
+	// The tabs cycle, and never stray onto the commentary a stored match has no
+	// record of.
+	for i := 0; i < int(numMatchTabs-tabOverview); i++ {
+		if m.reportTab == tabFeed {
+			t.Fatal("a stored match offered the commentary tab")
+		}
+		press("tab")
+	}
+	if m.reportTab != tabOverview {
+		t.Errorf("the tabs stopped on %s rather than coming round to the overview",
+			matchTabNames[m.reportTab])
+	}
+
+	press("esc")
+	if m.screen != ScreenFixtures {
+		t.Error("esc did not go back to the fixture list")
 	}
 }
 
