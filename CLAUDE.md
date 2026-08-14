@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git
+
+**Never run `git commit` or `git push` unless the user has explicitly asked for it in that message.**
+Finish the work, leave the changes in the working tree, and say what is ready to be committed — the
+decision to record or publish a change is the user's, every time. This is not satisfied by permission
+given for an earlier commit: authorisation covers the one commit it was given for and does not carry
+forward to the next change, however small or obviously correct that change seems.
+
+Staging (`git add`) is included in this — leave the working tree as the user left it. Read-only
+commands (`git status`, `git diff`, `git log`) are always fine.
+
 ## Commands
 
 ```sh
