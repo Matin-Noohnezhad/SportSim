@@ -108,6 +108,9 @@ func (n Names) Commentary(e Event) string {
 
 	case EvFullTime:
 		return fmt.Sprintf("Full time. %d - %d", e.Home, e.Away)
+
+	case EvShape:
+		return fmt.Sprintf("Tactical change from the %s bench.", team(e.Team))
 	}
 	return ""
 }

@@ -66,6 +66,28 @@ Saves live in `~/.sportsim/saves`.
 | `S` | save |
 | `q` | back, or quit from the home screen |
 
+During a match, when the feed is running you are in the dugout and the keys
+change:
+
+| Key | Action |
+|---|---|
+| `space` | stop and restart the clock |
+| `s` | substitutions — pick who comes off, then who replaces them |
+| `t` | shape and instructions — formation, mentality, tempo, pressing and the rest |
+| `enter` | skip to full time; again to leave and let the day finish |
+| `+` / `-` | speed the feed up or slow it down |
+
+The clock stops on its own whenever a panel is open, so you are never hurried
+into a decision. Five substitutions, and a goalkeeper can only be replaced by a
+goalkeeper. Changing formation keeps the same eleven on the pitch — they move
+into the new shape, your keeper stays in goal.
+
+Two things worth knowing. While you are on the touchline the rest of the day is
+held back: the other results, wages and the calendar only move once you leave.
+And the engine stops picking your substitutions the moment you take charge — it
+will still force a change if you leave an injured player on, but the rest are
+yours to spend. Watch with `L` off and it manages the match for you, as before.
+
 ## Leagues
 
 | Country | Tier 1 | Tier 2 |
@@ -88,10 +110,18 @@ turns up.
 
 ## How the simulation works
 
-**One engine, two presentations.** A match is fully simulated the moment it is
-played, producing a complete event stream. "Watching" a match minute by minute
-just reveals events that have already been decided. The quick result and the
-detailed feed can never disagree, because there is only one engine.
+**One engine, however you play a match.** Resolving a match instantly is the
+same code as watching it minute by minute, which is the same code as managing it
+from the touchline — the instant result is simply the live match with nobody
+watching. Stopping the clock costs nothing and neither does any instruction you
+give, so a match you paused eight times comes out identical, to the last shot, to
+the one you skipped. You cannot reroll a result by watching it.
+
+**Home advantage is real.** The home side gets an edge on possession, on attack
+and on defence, and because the attacking edge feeds a threat ratio that is then
+raised to a power, a 6% advantage compounds into a much larger share of the
+chances. Play the same two squads home and away and the venue alone is worth a
+quarter of a goal; over a season the home side takes 56% of all points.
 
 **Ability is derived, not stored.** A player's rating comes from 34 underlying
 attributes weighted by the position they are playing. Train a winger and their
@@ -110,28 +140,39 @@ the same history exactly.
 
 ### Calibration
 
-The engine is calibrated against real top-division rates, and the numbers below
-are asserted by `TestSeasonCalibration`, which plays a full 4,676-match season
-on every test run:
+The engine is calibrated against real top-division rates, and every figure below
+is measured on each test run over a full 4,676-match slate.
+
+Scorelines come from `TestSeasonCalibration`, which plays an actual season with
+squads that tire, lose form and pick up injuries as it goes — that test is the
+binding target:
 
 | | Simulated | Real |
 |---|---|---|
-| Goals per match | 2.75 | ~2.75 |
-| Home / away goals | 1.50 / 1.25 | 1.55 / 1.20 |
-| Shots per match | 25.2 | ~25 |
-| Shots on target | 8.6 | ~8.5 |
-| Corners | 9.9 | ~10.5 |
-| Fouls | 22.8 | ~22 |
-| Yellow / red cards | 3.6 / 0.12 | 3.9 / 0.11 |
-| Home wins / draws | 43.8% / 23.4% | 44% / 26% |
+| Goals per match | 2.72 | ~2.75 |
+| Home / away goals | 1.48 / 1.24 | 1.55 / 1.20 |
+| Home wins / draws | 43.6% / 23.7% | 44% / 26% |
+| Home share of all points | 55.9% | ~56% |
+
+The box score comes from `TestEngineSanity`, which plays the same fixtures with
+every squad in neutral condition, so it isolates the match engine from a season's
+wear and tear:
+
+| | Simulated | Real |
+|---|---|---|
+| Shots per match | 24.9 | ~25 |
+| Shots on target | 8.5 | ~8.5 |
+| Corners | 10.2 | ~10.5 |
+| Fouls | 21.8 | ~22 |
+| Yellow / red cards | 3.75 / 0.15 | 3.9 / 0.11 |
 
 A representative simulated season:
 
 ```
-Premier League    83..21 pts   Manchester City      Ligue 1        77..24 pts   Paris Saint-Germain
-La Liga          101..28 pts   Real Madrid          Primeira Liga  79..17 pts   SL Benfica
-Bundesliga        79..22 pts   FC Bayern München    Eredivisie     75..16 pts   AZ Alkmaar
-Serie A           90..18 pts   Inter                Süper Lig      91..18 pts   Galatasaray SK
+Premier League    82..24 pts   Manchester City      Ligue 1        73..26 pts   Paris Saint-Germain
+La Liga           95..22 pts   Real Madrid          Primeira Liga  88..29 pts   SL Benfica
+Bundesliga        80..26 pts   FC Bayern München    Eredivisie     78..20 pts   AZ Alkmaar
+Serie A           85..24 pts   Inter                Süper Lig      91..18 pts   Galatasaray SK
 ```
 
 ## Architecture
@@ -147,7 +188,7 @@ cmd/importer      build-time CSV → packed database (run once)
 
 game/             ← the façade every frontend calls
 engine/model      players, clubs, leagues, positions, tactics
-engine/match      match simulation, commentary
+engine/match      match simulation, live clock and touchline, commentary
 engine/season     fixtures, tables, promotion, relegation, rollover
 engine/dev        growth, decline, fitness, morale, valuation
 engine/transfer   asking prices, negotiation, AI market
@@ -189,10 +230,16 @@ go test ./...
 | `TestSeasonCalibration` | a full season stays within real football's rates |
 | `TestEngineSanity` | the engine alone stays in plausible bounds |
 | `TestDeterminism` | one seed reproduces a match exactly |
+| `TestLiveEqualsSim` | a match watched in fragments is identical to one played straight through |
+| `TestTakeChargeKeepsSubs` | the engine does not spend a manager's substitutions |
+| `TestLiveSubstitution` `TestLiveReshape` | touchline changes land, and obey the rules of the game |
+| `TestVenueAlternation` | no club plays three league games running at the same ground |
+| `TestRoundRobinComplete` | every pair still meets twice, once at each ground |
 | `TestMultiSeason` | three seasons leave league sizes, squads and ages intact |
 | `TestSaveRoundTrip` | a save reloads and continues on the same random stream |
 | `TestScreensRender` | every screen renders at every cursor position |
 | `TestKeyNavigation` | every screen's key bindings move the cursor without panicking |
+| `TestTouchlineControl` | a match is managed from kickoff to full time by keypress |
 | `TestNewGameFlow` | the club picker starts a career end to end |
 | `TestResourceUse` | reports binary, memory and speed figures |
 ```

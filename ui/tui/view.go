@@ -86,10 +86,17 @@ func (m *Model) footer() string {
 	case ScreenTransfers:
 		keys = "[/] search  [↑↓] move  [enter] bid  [v] profile  [q] back"
 	case ScreenMatch:
-		if m.mv != nil && !m.mv.done {
-			keys = "[enter] skip to full time  [+/-] speed  "
-		} else {
+		switch {
+		case m.mv == nil || m.mv.done:
 			keys = "[enter] continue"
+		case m.mv.panel == panelSubs:
+			keys = "[↑↓] move  [enter] choose  [esc] back to the match"
+		case m.mv.panel == panelShape:
+			keys = "[↑↓] move  [←→] change  [esc] back to the match"
+		case m.mv.managing():
+			keys = "[space] pause  [s] substitutions  [t] shape  [enter] skip to full time  [+/-] speed"
+		default:
+			keys = "[enter] skip to full time  [+/-] speed"
 		}
 	case ScreenSeasonEnd:
 		keys = "[any key] continue to the new season"

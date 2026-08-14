@@ -58,13 +58,26 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   Mondays, trains on the 1st of the month, runs the AI market, then moves the clock. **A second
   frontend (HTTP, mobile) is a new package beside `ui/tui`, not a rewrite — so nothing that belongs
   to the simulation may leak into a UI package, and nothing terminal-shaped may leak into `game`.**
+  `KickOff()` (in `game/live.go`) is the one place that breaks the once-a-day rhythm: it hands back a
+  `LiveMatch` for the managed club's fixture and *holds the rest of the day back* until `AdvanceDay`
+  is called. A frontend that calls `KickOff` owes an `AdvanceDay`; one that never calls it sees no
+  change at all, because `playFixture` opens a `LiveMatch` for every fixture either way and
+  `PlayOut` finishes whatever the manager left. A part-played match is deliberately absent from save
+  files — `Game.MatchInProgress()` reports it, and a frontend must refuse to save while it is true,
+  since those players have already been run down by the minutes played.
 - **`engine/model`** holds the data types with no behaviour beyond derivation: `World`, `Player`,
   `Club`, `League`, `Nation`, `Tactics`, `Formation`, `Pos`, `Date`.
-- **`engine/match`** simulates a match; **`engine/season`** owns calendar, tables and rollover;
+- **`engine/match`** simulates a match: `sim.go` holds the tuning constants and the per-incident
+  mechanics, `live.go` owns the clock (`Live`, and the touchline actions `Substitute`, `SetTactics`,
+  `TakeCharge`), `side.go` turns a squad into eleven players and a strength. **New match logic goes in
+  `Live.playMinute`, never in a caller** — a second minute loop is the one thing invariant 6 forbids.
+  **`engine/season`** owns calendar, tables and rollover;
   **`engine/dev`** owns growth/decline/fitness/morale/valuation; **`engine/transfer`** owns pricing,
   negotiation and the AI market; **`engine/rng`** is the single random source.
 - **`ui/tui`** is Bubble Tea: `Model` in `app.go` (state + key handling), rendering in `view.go`,
-  the match feed in `match.go`, Lip Gloss styles in `styles.go`.
+  the match feed and touchline panels in `match.go`, Lip Gloss styles in `styles.go`. `ScreenMatch`
+  intercepts keys *before* the global bindings, because from the touchline `s` and `t` are the
+  substitution and shape panels rather than the squad and tactics screens.
 - **`store`** gob-encodes and gzips a `snapshot` of world + schedule + inbox + RNG state.
 
 ### Invariants that hold the design together
@@ -93,9 +106,14 @@ few simulated seasons.
    order are written into save files and `assets/world.dat`. Insert a value in the middle and every
    existing save silently misreads. Append, and bump `store.formatVersion` / `pack.version` when the
    layout itself changes.
-6. **One engine, two presentations.** A match is fully simulated at kickoff and produces a complete
-   event stream; "watching" it minute by minute only reveals events already decided. Never add a
-   separate quick-result path — the two could then disagree.
+6. **One engine, however a match is played.** `match.Sim` *is* `match.Begin` followed by
+   `Live.PlayOut` — there is no second code path, and there must never be one. A match resolved
+   instantly, one revealed minute by minute, and one managed from the touchline all run the same
+   per-minute loop in `Live.playMinute`. Two things keep that honest and both are load-bearing:
+   pausing consumes no randomness, and neither does any touchline instruction, so a match played in
+   fragments is bit-identical to one played straight through (`TestLiveEqualsSim` asserts this down to
+   the box score). A manager who watches must not be able to reroll a result by watching.
+   The one thing that *does* legitimately differ is who picks the substitutions — see invariant 10.
 7. **The league list is data, not code.** `wanted` in `cmd/importer/main.go` is the only place
    divisions are enumerated; tiers, promotion and relegation counts flow from there through the pack
    into `model.League`. Adding a division is one line plus a re-import.
@@ -107,6 +125,16 @@ few simulated seasons.
    repeat landing next to the halfway-point one. Assigning venues by anything else (position in the
    pairing loop, club identity, a coin flip) gives clubs runs of a dozen away games. `TestVenueAlternation`
    guards this across every league size from 4 to 26.
+9. **A side's strength is recomputed from scratch, so nothing may be bolted on afterwards.**
+   `Side.recompute` is called again on every substitution and every change of shape. Any penalty
+   applied by multiplying `attack`/`defence`/`midfield` *after* it — as the red-card penalty once was
+   — is silently handed back at the next change. State the cause on the `Side` (`sentOff`) and apply
+   it inside `recompute`.
+10. **The engine does not spend a human manager's substitutions.** `Live.TakeCharge` marks a side as
+    managed from the touchline, and `maybeSub` then makes only injury-forced changes for it. This is
+    the one respect in which watching a match differs from skipping it, and it has to: somebody must
+    pick the subs, and when nobody is in the dugout that has to be the engine.
+    `TestTakeChargeKeepsSubs` guards it.
 
 ### Calibration is a test, not a comment
 

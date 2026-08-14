@@ -121,6 +121,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		if m.screen == ScreenMatch && m.mv != nil && !m.mv.done {
+			// advance does nothing while the match is paused, so the timer keeps
+			// running rather than being torn down and restarted on every pause.
 			m.mv.advance()
 			if m.mv.done {
 				return m, nil
@@ -164,6 +166,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	key := msg.String()
+
+	// A match in progress owns the keyboard: from the touchline s and t are the
+	// substitution and shape panels, not the squad and tactics screens, and the
+	// manager cannot wander off to the transfer market mid-game.
+	if m.screen == ScreenMatch && m.mv != nil {
+		return m.keyMatch(key)
+	}
 
 	// Global bindings, available from every screen.
 	switch key {
@@ -239,8 +248,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyTransfers(key)
 	case ScreenInbox:
 		return m.keyList(key, &m.inboxCur, len(m.g.Inbox))
-	case ScreenMatch:
-		return m.keyMatch(key)
 	case ScreenSeasonEnd:
 		m.screen = ScreenHome
 		return m, nil
@@ -250,7 +257,20 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // advanceOneDay simulates a day and reacts to anything that needs the player's
 // attention, such as their own match finishing or a season ending.
+//
+// When live viewing is on, the managed club's own fixture is handed to the
+// manager first and the rest of the day waits: the other results, wages and the
+// clock only follow once they have left the touchline. See finishDay.
 func (m *Model) advanceOneDay() tea.Cmd {
+	if m.liveMode {
+		if lm := m.g.KickOff(); lm != nil {
+			m.autoUntil = 0
+			m.mv = newLiveView(m.g, lm)
+			m.screen = ScreenMatch
+			return tick(m.mv.speed)
+		}
+	}
+
 	rep := m.g.AdvanceDay()
 
 	if rep.SeasonEnded {
@@ -309,6 +329,13 @@ func (m *Model) setStatus(s string, isErr bool) {
 }
 
 func (m *Model) save() tea.Cmd {
+	// The players on the pitch have already been run down by the minutes played
+	// so far, and an in-progress match is not part of a save file, so reloading
+	// mid-game would make them serve those minutes twice.
+	if m.g.MatchInProgress() {
+		m.setStatus("Finish the match before saving.", true)
+		return nil
+	}
 	name := strings.ReplaceAll(m.g.World.ClubName(m.g.World.HumanClubID), " ", "_")
 	path := filepath.Join(store.Dir(), name+".sav")
 	if err := store.Save(m.g, path); err != nil {
@@ -559,27 +586,159 @@ func (m *Model) runSearch() {
 // ---------------- match ----------------
 
 func (m *Model) keyMatch(key string) (tea.Model, tea.Cmd) {
-	if m.mv == nil {
-		m.screen = ScreenHome
-		return m, nil
+	mv := m.mv
+	if key == "ctrl+c" {
+		m.quitting = true
+		return m, tea.Quit
 	}
+	if mv.panel != panelNone {
+		return m.keyTouchline(key)
+	}
+
 	switch key {
-	case "enter", " ":
-		if m.mv.done {
-			m.screen = ScreenHome
-			m.mv = nil
-			return m, nil
+	case "enter", "q", "esc":
+		if mv.done {
+			return m, m.leaveMatch()
 		}
-		m.mv.finish() // skip to full time
+		mv.finish() // skip to full time
+		return m, nil
+	case " ":
+		if mv.done {
+			return m, m.leaveMatch()
+		}
+		mv.paused = !mv.paused
+		return m, nil
+	case "s":
+		if mv.managing() {
+			mv.panel, mv.onBench, mv.pitchCur, mv.benchCur = panelSubs, false, 0, 0
+		}
+		return m, nil
+	case "t":
+		if mv.managing() {
+			mv.panel, mv.shapeCur = panelShape, 0
+		}
 		return m, nil
 	case "+", "=":
-		m.mv.faster()
+		mv.faster()
 		return m, nil
 	case "-":
-		m.mv.slower()
+		mv.slower()
 		return m, nil
 	}
 	return m, nil
+}
+
+// keyTouchline drives the substitution and shape panels. The clock is stopped
+// while either is open, so a manager is never hurried into a decision.
+func (m *Model) keyTouchline(key string) (tea.Model, tea.Cmd) {
+	mv := m.mv
+	if mv.panel == panelShape {
+		return m.keyShape(key)
+	}
+
+	pitch := mv.live.OnPitch()
+	bench := mv.live.Bench()
+	switch key {
+	case "esc", "q":
+		if mv.onBench {
+			mv.onBench = false
+		} else {
+			mv.panel = panelNone
+		}
+		return m, nil
+	case "enter":
+		if !mv.onBench {
+			if len(bench) == 0 {
+				m.setStatus("Nobody left on the bench.", true)
+				return m, nil
+			}
+			mv.onBench, mv.benchCur = true, 0
+			return m, nil
+		}
+		ok, msg := mv.live.Substitute(mv.pitchCur, mv.benchCur)
+		m.setStatus(msg, !ok)
+		if ok {
+			mv.reveal()
+			mv.onBench, mv.panel = false, panelNone
+		}
+		return m, nil
+	}
+
+	if mv.onBench {
+		return m.keyList(key, &mv.benchCur, len(bench))
+	}
+	return m.keyList(key, &mv.pitchCur, len(pitch))
+}
+
+// keyShape drives the formation and instruction panel. Row 0 is the formation;
+// the rest are the sliders, in the order shapePanel lists them.
+func (m *Model) keyShape(key string) (tea.Model, tea.Cmd) {
+	mv := m.mv
+	t := mv.live.Tactics()
+
+	switch key {
+	case "esc", "q", "enter":
+		mv.panel = panelNone
+		return m, nil
+	case "left", "right", "[", "]", "H", "J":
+		delta := 5
+		if key == "left" || key == "[" || key == "H" {
+			delta = -5
+		}
+		if mv.shapeCur == 0 {
+			f := int(t.Formation) + delta/5
+			if f < 0 || f >= int(model.NumFormations) {
+				return m, nil
+			}
+			ok, msg := mv.live.SetFormation(model.Formation(f))
+			m.setStatus(msg, !ok)
+			if ok {
+				mv.reveal()
+			}
+			return m, nil
+		}
+		v := int(*liveSliders[mv.shapeCur-1].get(&t)) + delta
+		if v < 0 {
+			v = 0
+		}
+		if v > 100 {
+			v = 100
+		}
+		*liveSliders[mv.shapeCur-1].get(&t) = uint8(v)
+		if ok, msg := mv.live.SetTactics(t); !ok {
+			m.setStatus(msg, true)
+		}
+		mv.reveal()
+		return m, nil
+	}
+	return m.keyList(key, &mv.shapeCur, len(liveSliders)+1)
+}
+
+// leaveMatch closes the match screen. A match the manager took charge of has
+// held up the rest of the day, which now runs.
+func (m *Model) leaveMatch() tea.Cmd {
+	live := m.mv != nil && m.mv.live != nil
+	m.mv = nil
+	m.screen = ScreenHome
+	if !live {
+		return nil
+	}
+	return m.finishDay()
+}
+
+// finishDay resolves everything the watched match was holding up: the other
+// fixtures, recovery, wages, the transfer market and the clock.
+func (m *Model) finishDay() tea.Cmd {
+	rep := m.g.AdvanceDay()
+	if rep.SeasonEnded {
+		m.autoUntil = 0
+		m.seasonReport = rep.Outcome.Headlines
+		m.screen = ScreenSeasonEnd
+		m.tableLeague = m.g.Club().LeagueID
+		return nil
+	}
+	m.setStatus("", false)
+	return nil
 }
 
 // resultOf is a small helper for the views.

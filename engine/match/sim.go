@@ -27,6 +27,7 @@ const (
 	EvInjury
 	EvHalfTime
 	EvFullTime
+	EvShape // a manager changed formation or instructions mid-match
 )
 
 // Event is a single incident. Player and Other are player IDs; Other carries
@@ -93,6 +94,7 @@ const (
 	homeDefEdge    = 1.035
 	fatiguePerMin  = 0.34
 	regulationMins = 90
+	maxSubs        = 5
 
 	// baseChanceRate is the per-minute probability that a chance falls to one
 	// side or the other. It sets the total number of shots in a match and is
@@ -105,112 +107,17 @@ const (
 	threatExponent = 1.62
 )
 
-// Sim plays a match and returns the result. The generator is consumed, so the
-// same seed always produces the same match.
+// Sim plays a match through to full time and returns the result. The generator
+// is consumed, so the same seed always produces the same match.
 //
-// The same code path serves both presentation modes: a full event list is
-// always produced, and the UI either prints the final score immediately or
-// reveals events minute by minute. There is no separate "quick" engine that
-// could disagree with the detailed one.
+// It is Begin followed by PlayOut and nothing else. A match resolved instantly
+// and a match watched minute by minute with substitutions made along the way run
+// through the very same code, so there is no "quick" engine that could disagree
+// with the detailed one. See Live.
 func Sim(r *rng.R, home, away *Side, attendance uint32) *Result {
-	res := &Result{
-		HomeClub:   home.ClubID,
-		AwayClub:   away.ClubID,
-		Attendance: attendance,
-		Events:     make([]Event, 0, 40),
-	}
-
-	sides := [2]*Side{home, away}
-	st := newTracker(sides)
-
-	var possMinutes [2]int
-	stoppage := r.Range(2, 6)
-	total := regulationMins + stoppage
-
-	for minute := 1; minute <= total; minute++ {
-		if minute == 46 {
-			res.Events = append(res.Events, Event{Minute: 45, Team: 255, Type: EvHalfTime,
-				Home: uint8(res.HomeGoals), Away: uint8(res.AwayGoals)})
-			// Half-time recovery: a short breather restores a little fitness.
-			st.recover(sides, 4)
-		}
-
-		// Who has the ball this minute.
-		mh := math.Pow(home.midfield*1.04, 1.35) // slight home edge on control
-		ma := math.Pow(away.midfield, 1.35)
-		att := 1
-		if r.Float() < mh/(mh+ma) {
-			att = 0
-		}
-		possMinutes[att]++
-
-		// Fouls belong to the minute's defending side.
-		st.foulCheck(r, res, sides, uint8(1-att), uint8(minute))
-
-		// Game state. A side protecting a lead drops deeper as the clock runs
-		// down; the team chasing the game commits more players forward and
-		// accepts more risk. This produces late comebacks and the draw rate
-		// real leagues show, which a purely strength-based model never reaches.
-		lead := res.HomeGoals - res.AwayGoals
-		hAtk, hDef := gameState(lead, minute)
-		aAtk, aDef := gameState(-lead, minute)
-
-		hA := home.attack * hAtk * homeAttackEdge
-		hD := home.defence * hDef * homeDefEdge
-		aA := away.attack * aAtk
-		aD := away.defence * aDef
-
-		// Each side's threat is what its attack does to the other's defence.
-		//
-		// Crucially, the two threats decide only how chances are *shared*, not
-		// how many there are. A mismatch in real football produces a lopsided
-		// split of roughly the usual number of chances — a 20-6 shot count, not
-		// forty shots — so total chances are held near constant. Letting the
-		// count itself grow with the mismatch is what inflates league-wide
-		// scoring whenever squads are unevenly worn down.
-		rH := hA / math.Max(aD, 0.15)
-		rA := aA / math.Max(hD, 0.15)
-		thH := math.Pow(rH, threatExponent)
-		thA := math.Pow(rA, threatExponent)
-
-		tempo := 0.88 + 0.24*float64(int(home.Tactics.Tempo)+int(away.Tactics.Tempo))/200
-		if r.Chance(baseChanceRate * tempo) {
-			ct, ratio := uint8(1), rA
-			if r.Float() < thH/(thH+thA) {
-				ct, ratio = 0, rH
-			}
-			st.chance(r, res, sides, ct, uint8(minute), ratio)
-		} else if r.Chance(0.100) {
-			// A move that breaks down can still win a corner or run offside.
-			if r.Chance(0.72) {
-				res.Stats[att].Corners++
-			} else {
-				res.Stats[att].Offsides++
-			}
-		}
-
-		// Fatigue and substitutions.
-		st.drain(sides, r)
-		if minute >= 55 && minute <= 85 {
-			for i := 0; i < 2; i++ {
-				st.maybeSub(r, res, sides, uint8(i), uint8(minute))
-			}
-		}
-	}
-
-	res.Events = append(res.Events, Event{Minute: uint8(regulationMins), Team: 255, Type: EvFullTime,
-		Home: uint8(res.HomeGoals), Away: uint8(res.AwayGoals)})
-
-	// Possession percentages.
-	tot := possMinutes[0] + possMinutes[1]
-	if tot > 0 {
-		p := int(math.Round(float64(possMinutes[0]) * 100 / float64(tot)))
-		res.Stats[0].Possession = uint8(p)
-		res.Stats[1].Possession = uint8(100 - p)
-	}
-
-	st.finish(r, res, sides)
-	return res
+	l := Begin(r, home, away, attendance)
+	l.PlayOut()
+	return l.Result()
 }
 
 // gameState returns attack and defence multipliers for a side that is `lead`
@@ -526,11 +433,8 @@ func (t *tracker) sendOff(res *Result, sides [2]*Side, team, minute uint8, p *mo
 		t.minutes[p.ID] = int(minute) - t.entered[p.ID]
 		s.Lineup[i] = nil
 	}
+	s.sentOff++
 	s.recompute()
-	// Ten men defend deeper and create far less.
-	s.attack *= 0.74
-	s.defence *= 0.90
-	s.midfield *= 0.80
 }
 
 // drain applies per-minute fatigue and rolls for injuries.
@@ -583,7 +487,7 @@ func (t *tracker) recover(sides [2]*Side, amount float64) {
 // maybeSub lets the AI manager replace a tired, injured or ineffective player.
 func (t *tracker) maybeSub(r *rng.R, res *Result, sides [2]*Side, team, minute uint8) {
 	s := sides[team]
-	if s.subsUsed >= 5 || len(s.Bench) == 0 {
+	if s.subsUsed >= maxSubs || len(s.Bench) == 0 {
 		return
 	}
 
@@ -606,14 +510,15 @@ func (t *tracker) maybeSub(r *rng.R, res *Result, sides [2]*Side, team, minute u
 	if worst < 0 {
 		return
 	}
-	// Injuries force a change; fatigue only prompts one.
-	if worstNeed < 90 && !r.Chance(0.22) {
+	// Injuries force a change; fatigue only prompts one. A manager working the
+	// touchline keeps their discretionary changes — nobody wants their five subs
+	// spent for them — but an injury still has to be dealt with if they do not.
+	forced := worstNeed >= 90
+	if !forced && (s.managed || !r.Chance(0.22)) {
 		return
 	}
 
 	slot := s.Slots[worst]
-	off := s.Lineup[worst]
-
 	best, bestScore := -1, -1.0
 	for i, b := range s.Bench {
 		if b.IsGK() != (slot == model.GK) {
@@ -626,14 +531,21 @@ func (t *tracker) maybeSub(r *rng.R, res *Result, sides [2]*Side, team, minute u
 	if best < 0 {
 		return
 	}
-	on := s.Bench[best]
-	s.Bench = append(s.Bench[:best], s.Bench[best+1:]...)
+	t.applySub(res, s, team, worst, best, minute)
+}
+
+// applySub is the mechanics of a change, shared by the AI manager and by a human
+// one working the touchline through Live.Substitute, so both are recorded
+// identically in the match report and the player ratings.
+func (t *tracker) applySub(res *Result, s *Side, team uint8, slot, benchIdx int, minute uint8) {
+	off, on := s.Lineup[slot], s.Bench[benchIdx]
+	s.Bench = append(s.Bench[:benchIdx], s.Bench[benchIdx+1:]...)
 
 	t.minutes[off.ID] = int(minute) - t.entered[off.ID]
-	s.Lineup[worst] = on
+	s.Lineup[slot] = on
 	t.entered[on.ID] = int(minute)
 	t.pts[on.ID] = 6.0
-	t.lineOf[on.ID] = slot.Line()
+	t.lineOf[on.ID] = s.Slots[slot].Line()
 	t.order = append(t.order, on.ID)
 	t.startFit[on.ID] = float64(on.Fitness)
 	s.subsUsed++

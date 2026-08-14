@@ -19,12 +19,20 @@ type Side struct {
 	Bench      []*model.Player
 	Reputation uint8
 
-	// Derived at kickoff and refreshed after substitutions.
+	// Derived at kickoff and refreshed whenever the side changes.
 	attack   float64
 	midfield float64
 	defence  float64
 
 	subsUsed int
+	// managed marks a side whose manager is working the touchline in person, so
+	// the engine leaves their changes to them. See Live.TakeCharge.
+	managed bool
+	// sentOff counts dismissals. It is held on the side rather than applied once
+	// at the red card because every later substitution and shape change
+	// recomputes the unit strengths from scratch, which would otherwise hand a
+	// ten-man team its missing player back.
+	sentOff int
 }
 
 // condition scales a player's effective rating by how ready they are to play:
@@ -70,32 +78,7 @@ func AutoPick(squad []*model.Player, t model.Tactics) (lineup [11]*model.Player,
 		avail = avail[:26]
 	}
 
-	taken := make([]bool, len(avail))
-	filled := [11]bool{}
-
-	for n := 0; n < 11; n++ {
-		bestSlot, bestPlayer, bestScore := -1, -1, -1.0
-		for s := 0; s < 11; s++ {
-			if filled[s] {
-				continue
-			}
-			for i, p := range avail {
-				if taken[i] {
-					continue
-				}
-				sc := effective(p, slots[s])
-				if sc > bestScore {
-					bestScore, bestSlot, bestPlayer = sc, s, i
-				}
-			}
-		}
-		if bestSlot < 0 || bestPlayer < 0 {
-			break // squad too small to field eleven
-		}
-		lineup[bestSlot] = avail[bestPlayer]
-		filled[bestSlot] = true
-		taken[bestPlayer] = true
-	}
+	lineup, taken := assign(slots, avail)
 
 	// Bench: the best remaining, biased to cover a keeper and each outfield unit.
 	rest := make([]*model.Player, 0, len(avail))
@@ -126,6 +109,80 @@ func AutoPick(squad []*model.Player, t model.Tactics) (lineup [11]*model.Player,
 		bench = append(bench, p)
 	}
 	return lineup, bench
+}
+
+// assign places players into slots by greedy maximum-weight matching:
+// repeatedly take the single best remaining (slot, player) pairing. The returned
+// used slice marks which players were placed; slots go empty when there are
+// fewer players than places, which is how a side reduced to ten men is handled.
+func assign(slots [11]model.Pos, players []*model.Player) (lineup [11]*model.Player, used []bool) {
+	used = make([]bool, len(players))
+	var filled [11]bool
+
+	for n := 0; n < 11; n++ {
+		bestSlot, bestPlayer, bestScore := -1, -1, -1.0
+		for s := 0; s < 11; s++ {
+			if filled[s] {
+				continue
+			}
+			for i, p := range players {
+				if used[i] {
+					continue
+				}
+				if sc := effective(p, slots[s]); sc > bestScore {
+					bestScore, bestSlot, bestPlayer = sc, s, i
+				}
+			}
+		}
+		if bestSlot < 0 || bestPlayer < 0 {
+			break // fewer players than places
+		}
+		lineup[bestSlot] = players[bestPlayer]
+		filled[bestSlot] = true
+		used[bestPlayer] = true
+	}
+	return lineup, used
+}
+
+// reshape moves the players already on the pitch into a different formation's
+// slots. Who is playing does not change — only the shape they hold — so a
+// manager can go three at the back at half time without touching the eleven.
+func (s *Side) reshape(f model.Formation) {
+	var keeper *model.Player
+	onPitch := make([]*model.Player, 0, 11)
+	for i, p := range s.Lineup {
+		if p == nil {
+			continue
+		}
+		if keeper == nil && s.Slots[i] == model.GK {
+			keeper = p
+		}
+		onPitch = append(onPitch, p)
+	}
+
+	s.Tactics.Formation = f
+	s.Slots = f.Slots()
+	s.Lineup, _ = assign(s.Slots, onPitch)
+
+	// The keeper stays in goal. Putting an outfield player between the posts is
+	// a decision of its own, not a side effect of changing shape — and when the
+	// keeper has been sent off, whoever the matching puts there is exactly right.
+	if gk := slotOf(s.Slots, model.GK); keeper != nil && gk >= 0 && s.Lineup[gk] != keeper {
+		if cur := s.starterIndex(keeper.ID); cur >= 0 {
+			s.Lineup[cur], s.Lineup[gk] = s.Lineup[gk], s.Lineup[cur]
+		}
+	}
+	s.recompute()
+}
+
+// slotOf returns the first slot holding the given position, or -1.
+func slotOf(slots [11]model.Pos, pos model.Pos) int {
+	for i, p := range slots {
+		if p == pos {
+			return i
+		}
+	}
+	return -1
 }
 
 // NewSide assembles a Side and computes its opening strength.
@@ -207,6 +264,13 @@ func (s *Side) recompute() {
 	s.defence *= 1.14 - 0.24*mentality - 0.10*(line-0.5)
 	s.midfield *= 0.94 + 0.14*press
 
+	// Ten men defend deeper and create far less — by more than the missing
+	// player's own contribution, which the empty slot has already taken out.
+	for i := 0; i < s.sentOff; i++ {
+		s.attack *= 0.74
+		s.defence *= 0.90
+		s.midfield *= 0.80
+	}
 }
 
 // starterIndex returns the lineup slot a player occupies, or -1.

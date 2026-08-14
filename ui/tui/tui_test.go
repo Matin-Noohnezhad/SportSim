@@ -87,6 +87,142 @@ func TestKeyNavigation(t *testing.T) {
 	}
 }
 
+// TestTouchlineControl drives a match the way a manager would work one: advance
+// days until kickoff, pause, make a substitution, change shape, then see the
+// game out. It is a smoke test over the whole live path, from the key handlers
+// down to the engine, and it checks the day only moves on once the match is over.
+func TestTouchlineControl(t *testing.T) {
+	g, _ := game.New("Tester", 1, 23)
+	g.AutoSelect()
+	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, liveMode: true}
+	m.tableLeague = g.Club().LeagueID
+
+	press := func(k string) {
+		t.Helper()
+		var msg tea.KeyMsg
+		switch k {
+		case "down", "up", "left", "right", "enter", "esc":
+			msg = tea.KeyMsg{Type: keyType(k)}
+		default:
+			msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+		}
+		var mm tea.Model = m
+		mm, _ = m.Update(msg)
+		m = mm.(*Model)
+		if strings.TrimSpace(m.View()) == "" && !m.quitting {
+			t.Fatalf("blank screen after key %q", k)
+		}
+	}
+
+	// Advance until the managed club kicks off.
+	for i := 0; i < 60 && m.screen != ScreenMatch; i++ {
+		press(" ")
+	}
+	if m.screen != ScreenMatch || m.mv == nil || m.mv.live == nil {
+		t.Fatal("never reached a match under touchline control")
+	}
+	date := g.World.Date
+
+	// Play a stretch of it, then stop the clock.
+	for i := 0; i < 60; i++ {
+		m.mv.advance()
+	}
+	press(" ")
+	if !m.mv.paused {
+		t.Error("space did not pause the match")
+	}
+	if g.World.Date != date {
+		t.Error("the day moved on while the match was still being played")
+	}
+
+	// A substitution: open the panel, choose a player, choose a replacement.
+	before := m.mv.live.SubsLeft()
+	pitch := m.mv.live.OnPitch()
+	press("s")
+	if m.mv.panel != panelSubs {
+		t.Fatal("s did not open the substitutions panel")
+	}
+	press("down")
+	off := pitch[m.mv.pitchCur]
+	press("enter")
+	if !m.mv.onBench {
+		t.Fatal("enter did not move on to the bench")
+	}
+	// The bench always leads with the reserve keeper, who cannot come on for an
+	// outfield player, so move past them.
+	for m.mv.live.Bench()[m.mv.benchCur].Keeper {
+		press("down")
+	}
+	on := m.mv.live.Bench()[m.mv.benchCur]
+	press("enter")
+
+	if m.mv.live.SubsLeft() != before-1 {
+		t.Fatalf("subs left = %d, want %d — the change was refused: %s",
+			m.mv.live.SubsLeft(), before-1, m.status)
+	}
+	if m.mv.panel != panelNone {
+		t.Error("the panel stayed open after the change was made")
+	}
+	nowOn := map[uint32]bool{}
+	for _, p := range m.mv.live.OnPitch() {
+		nowOn[p.PlayerID] = true
+	}
+	if !nowOn[on.PlayerID] {
+		t.Errorf("%s did not come on", on.Name)
+	}
+	if nowOn[off.PlayerID] {
+		t.Errorf("%s did not come off", off.Name)
+	}
+
+	// A change of shape, which must keep the same eleven on the pitch.
+	press("t")
+	if m.mv.panel != panelShape {
+		t.Fatal("t did not open the shape panel")
+	}
+	shape := m.mv.live.Tactics().Formation
+	press("right")
+	if m.mv.live.Tactics().Formation == shape {
+		t.Errorf("formation did not change from %s: %s", shape, m.status)
+	}
+	if got := len(m.mv.live.OnPitch()); got != 11 {
+		t.Errorf("%d players on the pitch after reshaping, want 11", got)
+	}
+	press("down")
+	mentality := m.mv.live.Tactics().Mentality
+	press("right")
+	if m.mv.live.Tactics().Mentality != mentality+5 {
+		t.Errorf("mentality = %d, want %d", m.mv.live.Tactics().Mentality, mentality+5)
+	}
+	press("esc")
+
+	// See the match out, then leave — only now should the day resolve.
+	press("enter")
+	if !m.mv.done {
+		t.Fatal("enter did not run the match to full time")
+	}
+	if g.World.Date != date {
+		t.Error("the day moved on before the manager left the touchline")
+	}
+	press("enter")
+	if m.screen == ScreenMatch {
+		t.Error("still on the match screen after full time")
+	}
+	if g.World.Date == date {
+		t.Error("the day did not resolve after the match")
+	}
+	if f := g.Sched.Fixtures; true {
+		played := false
+		for i := range f {
+			if f[i].Played && (f[i].Home == g.World.HumanClubID || f[i].Away == g.World.HumanClubID) {
+				played = true
+			}
+		}
+		if !played {
+			t.Error("the watched match was never recorded")
+		}
+	}
+}
+
 func keyType(k string) tea.KeyType {
 	switch k {
 	case "down":
