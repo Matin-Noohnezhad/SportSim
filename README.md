@@ -192,5 +192,7 @@ go test ./...
 | `TestMultiSeason` | three seasons leave league sizes, squads and ages intact |
 | `TestSaveRoundTrip` | a save reloads and continues on the same random stream |
 | `TestScreensRender` | every screen renders at every cursor position |
+| `TestKeyNavigation` | every screen's key bindings move the cursor without panicking |
+| `TestNewGameFlow` | the club picker starts a career end to end |
 | `TestResourceUse` | reports binary, memory and speed figures |
 ```
