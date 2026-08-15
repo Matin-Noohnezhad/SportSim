@@ -23,6 +23,10 @@ func (m *Model) View() string {
 		return "loading..."
 	}
 
+	if m.confirmQuit {
+		return m.header() + "\n" + m.quitPanel() + "\n" + m.footer()
+	}
+
 	var body string
 	switch m.screen {
 	case ScreenHome:
@@ -53,6 +57,37 @@ func (m *Model) View() string {
 	return m.header() + "\n" + body + "\n" + m.footer()
 }
 
+// quitPanel asks whether the manager really means it, with the cursor on No.
+//
+// It names what would be lost rather than asking in the abstract, because the
+// answer depends on it: there is no autosave, so everything since the last S is
+// the real stake, and a match left part-played cannot be saved at all.
+func (m *Model) quitPanel() string {
+	var b strings.Builder
+
+	b.WriteString(stTitle.Render("Leave SportSim?") + "\n\n")
+	b.WriteString("  " + stMuted.Render("Any progress since your last save will be lost.") + "\n")
+	if m.g != nil && m.g.MatchInProgress() {
+		b.WriteString("  " + stBad.Render("A match is part-played — it cannot be saved, and will be lost.") + "\n")
+	}
+	b.WriteString("\n")
+
+	// The marker carries the choice on its own. Highlighting alone would leave a
+	// terminal without colour showing two identical options, and this is the one
+	// prompt in the game where picking the wrong one cannot be undone.
+	choice := func(label string, on bool) string {
+		if on {
+			return stSelected.Render(fmt.Sprintf(" ▸ %s ", label))
+		}
+		return fmt.Sprintf("   %s ", label)
+	}
+	b.WriteString("  " + choice("No, keep playing", !m.quitYes) +
+		"   " + choice("Yes, quit", m.quitYes) + "\n\n")
+	b.WriteString("  " + stMuted.Render("[←→] choose   [enter] confirm   [esc] back to the game"))
+
+	return stPanel.Render(b.String())
+}
+
 // ---------------- chrome ----------------
 
 func (m *Model) header() string {
@@ -80,6 +115,9 @@ func (m *Model) header() string {
 
 func (m *Model) footer() string {
 	keys := "[space] day  [w] to next match  [m] +30 days  [s]quad [t]actics [l]eague [f]ixtures t[r]ansfers [i]nbox  [S]ave  [q]uit"
+	if m.confirmQuit {
+		return stBar.Width(max(m.width-2, 20)).Render("[←→] choose  [enter] confirm  [esc] back to the game")
+	}
 	switch m.screen {
 	case ScreenSquad:
 		keys = "[↑↓] move  [enter] profile  [c] offer contract  [x] sell  [space] advance day  [q] back"

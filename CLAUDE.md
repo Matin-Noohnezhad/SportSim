@@ -95,7 +95,12 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   name being typed into the market must not be read as a request to change screen, and the
   moment focus returns to the results the single letters are global bindings again. That is
   what `market.focus == filterNone` means, and why every filter is edited through it rather
-  than through a modal search prompt. `ScreenTable` and
+  than through a modal search prompt. `confirmQuit` is a third interceptor and sits ahead of
+  the global bindings for the same reason: while the prompt is up, a letter must not answer the
+  question by navigating away from it. It opens with `quitYes` false — the irreversible answer
+  has to be moved onto, never reached by pressing `q` twice — and only `ctrl+c` still leaves
+  without asking, because arguing with the terminal's own way out would be worse than losing a
+  day's play. `TestQuitIsConfirmed` drives the whole path. `ScreenTable` and
   `ScreenStats` are two views of one division and share `keyTable`, with `tab` between them; the
   charts sit two abreast on a wide terminal and stack on a narrow one, which is why `statRows` is
   told how many rows of them there will be.

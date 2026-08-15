@@ -54,7 +54,10 @@ sportsim -load FILE   resume a specific save
 sportsim -list        list saved careers
 ```
 
-Saves live in `~/.sportsim/saves`.
+Saves live in `~/.sportsim/saves`. There is no autosave, so `q` on the home
+screen asks before it closes the game. The prompt opens on **No** — leaving takes
+`→` and then `enter`, so the key that means "go back" on every other screen
+cannot end a career by being pressed twice. `ctrl+c` still exits immediately.
 
 ### Keys
 
@@ -68,7 +71,7 @@ Saves live in `~/.sportsim/saves`.
 | `enter` | on the fixture list, open a played match's report |
 | `L` | toggle between a minute-by-minute feed and an instant result |
 | `S` | save |
-| `q` | back, or quit from the home screen |
+| `q` | back, or quit from the home screen — quitting asks first |
 
 During a match, when the feed is running you are in the dugout and the keys
 change:
@@ -441,6 +444,7 @@ go test ./...
 | `TestTransferMarket` | the market is filtered, sorted, shortlisted and bid on by keypress |
 | `TestScreensRender` | every screen renders at every cursor position |
 | `TestKeyNavigation` | every screen's key bindings move the cursor without panicking |
+| `TestQuitIsConfirmed` | leaving the game takes a deliberate move onto Yes, never one keypress |
 | `TestTouchlineControl` | a match is managed from kickoff to full time by keypress |
 | `TestNewGameFlow` | the club picker starts a career end to end |
 | `TestResourceUse` | reports binary, memory and speed figures |
