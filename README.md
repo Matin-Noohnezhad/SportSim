@@ -21,8 +21,8 @@ current EA FC data.
    4. Brighton & Hove Albion    15   9   4   2   23    9   +14   31  WLWDDD
 
   CLUB
-  Balance €36.9M    Transfer budget €121.4M    Revenue €174.5M per season
-  Wages €3.4M of €3.9M per week    Running costs €2.0M per week
+  Balance €116.9M   Transfer budget €121.4M   Revenue €717.5M per season
+  Wages €3.4M of €3.9M per week   Running costs €8.6M   Commercial €11.3M per week
   Squad 23 players    Stadium 56,791    Reputation 94/100
 ```
 
@@ -217,28 +217,37 @@ derived from the squads as imported — on the same scale.
 
 ## The club's money
 
-Four flows, all on the home screen:
+Five flows, all on the home screen:
 
 | | |
 |---|---|
 | **Gate receipts** | banked after every home match — the crowd that turned up × your ticket price |
-| **Prize money** | paid once, at the end of the season, scaled by where you finished: the champion takes the division's whole pot, the bottom club about a third of it |
+| **Commercial** | sponsorship, shirt deals, merchandise, tours; paid weekly. The biggest stream by far if you are a big club, and almost nothing if you are not |
+| **Broadcast** | your division's television deal, settled at the end of the season: half shared equally, a quarter on where you finished, a quarter on how much of the audience you bring |
 | **Wages** | out every Monday |
 | **Running costs** | out every Monday — the stadium, the staff, the academy, the training ground, travel |
 
-Running costs are sized against what the club earns rather than what it pays its
-players, so you cannot sell your way out of them. That is the trap to watch for
-after relegation: a wage bill that was comfortable in the top flight is not
-comfortable against a smaller pot, and the overheads do not fall to meet it.
+The figures are calibrated against the [Deloitte Football Money League](https://www.deloitte.com/uk/en/services/consulting-financial/analysis/deloitte-football-money-league.html),
+scaled to the wage economy the squad data ships with. Real Madrid earn about
+€754M a season against a €263M wage bill, Getafe about €77M — the same ratio to
+each other that the real clubs have.
 
-Your transfer budget is set at the summer rollover from what you actually have —
-roughly half of it — so a season spent in the red costs you the next one's
-signings as well.
+Two consequences worth knowing.
 
-Two things are deliberately not modelled: commercial and sponsorship income, and
-any cost that isn't wages or general overheads. That mostly matters at the very
-top, where a handful of clubs — Real Madrid above all — carry wage bills bigger
-than their entire modelled revenue and will run at a loss whatever you do.
+**Being big is worth more than winning.** The commercial curve is steep and the
+broadcast pot is weighted by market size, so a giant having a poor season still
+out-earns a well-run mid-table club by a distance. That is how football actually
+works, and it is what makes managing a small club a different game rather than a
+slower one.
+
+**Running costs are sized against what you earn, not what you pay your players.**
+You cannot sell your way out of them. That is the trap after relegation: a wage
+bill that was comfortable in the top flight is not comfortable against a smaller
+television deal, and the overheads do not fall to meet it.
+
+Your transfer budget is a share of a season's revenue, capped by what is actually
+in the bank — so a rich season funds signings, but money hoarded over a long
+career does not turn into unlimited buying power.
 
 ## Statistics
 
@@ -412,8 +421,11 @@ go test ./...
 | `TestLiveSubstitution` `TestLiveReshape` | touchline changes land, and obey the rules of the game |
 | `TestTouchlineChangesAreForOneMatch` | nothing decided in the dugout outlives the final whistle |
 | `TestClubHasGateIncome` | every club charges something at the turnstile |
-| `TestPrizeMoneyPaidOnce` | the rollover settles prize money and nothing else |
+| `TestPrizeMoneyPaidOnce` | the rollover pays out the broadcast pot exactly, and no more |
+| `TestPrizeMoneyFollowsTheAudience` | television money is weighted by market size, not shared flat |
+| `TestCommercialCarriesTheGiants` | sponsorship scales steeply enough to fund the biggest wage bills |
 | `TestRunningCostsScaleWithRevenue` | overheads follow what a club earns, not what it pays its players |
+| `TestTransferBudgetComesFromRevenue` | buying power comes from income, capped by the bank |
 | `TestVenueAlternation` | no club plays three league games running at the same ground |
 | `TestRoundRobinComplete` | every pair still meets twice, once at each ground |
 | `TestMultiSeason` | three seasons leave league sizes, squads, ages and the money intact |

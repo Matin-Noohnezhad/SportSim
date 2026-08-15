@@ -24,7 +24,14 @@ import (
 // played fixture the match report it keeps — box score, sendings-off and, for
 // the managed club's own matches, the player ratings; version 4 added the
 // manager's transfer shortlist.
-const formatVersion = 4
+//
+// Version 5 changes no field, but League.PrizeMoney means something different:
+// it is now the division's whole broadcast deal rather than the champion's
+// cheque, and season.PrizeShare divides it. A version-4 save carries the old
+// figures, which the new split would read as a pot seven times too small — the
+// save would load and quietly starve every club in the game, which is worse
+// than refusing it.
+const formatVersion = 5
 
 // snapshot is the on-disk representation of a career.
 type snapshot struct {

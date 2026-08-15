@@ -57,14 +57,11 @@ func payPrizeMoney(w *model.World, s *Schedule, out *Outcome) {
 			if c == nil {
 				continue
 			}
-			// The champion takes the full pot; last place takes about a third.
-			//
-			// Prize money is all that is settled here. Gate receipts are banked
-			// match by match as they are taken, in game.playFixture, and adding a
-			// season's worth again at the rollover paid every club twice for the
-			// same nineteen home games.
-			share := 1.0 - 0.66*float64(i)/float64(n-1)
-			c.Balance += int64(float64(l.PrizeMoney) * share)
+			// Broadcast money is all that is settled here. Gate receipts are
+			// banked match by match as they are taken, in game.playFixture, and
+			// commercial income weekly in game.settleWeek; adding either again
+			// here would pay every club twice for the same season.
+			c.Balance += int64(float64(l.PrizeMoney) * PrizeShare(w, c, i, n))
 		}
 	}
 }
@@ -395,7 +392,7 @@ func resetSeasonStats(w *model.World) {
 }
 
 // rebalanceBudgets resets each club's transfer and wage allowances for the new
-// campaign, based on the money it actually has.
+// campaign, against what it earns rather than what has piled up in the bank.
 func rebalanceBudgets(w *model.World) {
 	for i := range w.Clubs {
 		c := &w.Clubs[i]
@@ -404,12 +401,7 @@ func rebalanceBudgets(w *model.World) {
 		if l != nil {
 			rep = int(l.Reputation)
 		}
-		// Roughly half of free cash goes to the transfer kitty.
-		budget := c.Balance / 2
-		if budget < 0 {
-			budget = 0
-		}
-		c.TransferBudget = budget
+		c.TransferBudget = TransferBudget(w, c)
 		wages := w.WageBill(c.ID)
 		c.WageBudget = wages*112/100 + int64(rep)*4_000
 	}

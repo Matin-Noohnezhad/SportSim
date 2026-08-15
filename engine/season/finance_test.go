@@ -7,13 +7,14 @@ import (
 	"sportsim/engine/rng"
 )
 
-// TestPrizeMoneyPaidOnce pins what the rollover settles: the division's pot,
-// shared down the table, and nothing else.
+// TestPrizeMoneyPaidOnce pins what the rollover settles: the division's
+// broadcast pot, split across the table, and nothing else.
 //
-// The gate belongs to the matches it was taken at and is banked there. Paying a
-// season's worth again here — as this once did — quietly doubled every club's
-// matchday income, which is the sort of mistake that only shows up as clubs
-// being inexplicably rich several seasons later.
+// The pot is the whole deal rather than the champion's cheque, so the shares
+// must come to exactly it — pay out more and every club in the game is quietly
+// subsidised, pay out less and the money simply vanishes. The gate belongs to
+// the matches it was taken at and is banked there; adding a season's worth again
+// here, as this once did, doubled every club's matchday income.
 func TestPrizeMoneyPaidOnce(t *testing.T) {
 	w := leagueOf(4)
 	w.Leagues[0].PrizeMoney = 100_000_000
@@ -29,28 +30,55 @@ func TestPrizeMoneyPaidOnce(t *testing.T) {
 	out := &Outcome{Champions: map[uint16]uint16{}}
 	payPrizeMoney(w, s, out)
 
-	// With no matches played the table is level, so the order is arbitrary but
-	// the shares are not: the top club takes the pot and the bottom about a third.
-	var got []int64
+	var paid int64
 	for i := range w.Clubs {
-		got = append(got, w.Clubs[i].Balance)
+		paid += w.Clubs[i].Balance
 	}
-	want := []int64{100_000_000, 78_000_000, 56_000_000, 34_000_000}
-	sortDesc(got)
-	for i, v := range want {
-		if got[i] != v {
-			t.Errorf("place %d paid %d, want %d", i+1, got[i], v)
-		}
+	// Integer truncation costs a euro per club at most.
+	if diff := 100_000_000 - paid; diff < 0 || diff > int64(len(w.Clubs)) {
+		t.Errorf("paid out %d of a %d pot", paid, 100_000_000)
+	}
+
+	// Every club is level on reputation here, so only the finishing order can
+	// separate them, and it must: a division that paid the same either way would
+	// make the table worth nothing.
+	rows := Table(w, s, 1)
+	first, last := w.Club(rows[0].ClubID), w.Club(rows[len(rows)-1].ClubID)
+	if first.Balance <= last.Balance {
+		t.Errorf("champion took %d, bottom club %d", first.Balance, last.Balance)
 	}
 }
 
-func sortDesc(x []int64) {
-	for i := range x {
-		for j := i + 1; j < len(x); j++ {
-			if x[j] > x[i] {
-				x[i], x[j] = x[j], x[i]
-			}
+// TestPrizeMoneyFollowsTheAudience checks the quarter of the pot that goes on
+// how big a club is rather than where it finished.
+//
+// Real domestic deals are weighted this way, and the game needs it badly: while
+// the pot was shared out flat, a mid-table Getafe drew the same television money
+// as Real Madrid, which left the small club in a rich division earning several
+// times what it does in life and the giant earning a fraction of it.
+func TestPrizeMoneyFollowsTheAudience(t *testing.T) {
+	w := leagueOf(4)
+	w.Leagues[0].PrizeMoney = 100_000_000
+	reps := []uint8{95, 70, 55, 40}
+	for i := range w.Clubs {
+		w.Clubs[i].Reputation = reps[i]
+	}
+
+	// Same finishing place for each, so only market size can differ.
+	var shares []float64
+	for i := range w.Clubs {
+		shares = append(shares, PrizeShare(w, &w.Clubs[i], 1, 4))
+	}
+	for i := 1; i < len(shares); i++ {
+		if shares[i] >= shares[i-1] {
+			t.Errorf("club of reputation %d takes %.4f, the bigger one on %d takes %.4f",
+				reps[i], shares[i], reps[i-1], shares[i-1])
 		}
+	}
+
+	// Finishing above a bigger club must still be worth something.
+	if PrizeShare(w, &w.Clubs[1], 0, 4) <= PrizeShare(w, &w.Clubs[1], 3, 4) {
+		t.Error("winning the division pays no more than finishing bottom of it")
 	}
 }
 
@@ -110,5 +138,65 @@ func TestRunningCostsScaleWithRevenue(t *testing.T) {
 	}
 	if RunningCosts(w, nil) != 0 {
 		t.Error("a club that does not exist costs something to run")
+	}
+}
+
+// TestCommercialCarriesTheGiants is the guard on the stream that was missing
+// altogether, and the reason the biggest clubs could not pay their wages.
+//
+// Real Madrid earn €594m of their €1,161m from sponsorship, merchandise and
+// touring — more than the gate and television put together. Modelling only the
+// other two left them with a revenue smaller than their wage bill, losing money
+// every season whatever the costs were set to, because no share of a number too
+// small can cover a number bigger than it.
+func TestCommercialCarriesTheGiants(t *testing.T) {
+	giant, ordinary, small := Commercial(95), Commercial(75), Commercial(45)
+	if !(giant > ordinary && ordinary > small) {
+		t.Fatalf("commercial income does not rise with standing: %d, %d, %d", giant, ordinary, small)
+	}
+	// It has to be steep, not merely increasing: a global name earns an order of
+	// magnitude more from it than a solid top-flight club, which is what lets the
+	// same curve serve both ends of the game.
+	if giant < 10*ordinary {
+		t.Errorf("a club of reputation 95 earns %d commercially against %d for one on 75", giant, ordinary)
+	}
+	// And everyone has some, or the smallest clubs cannot cover their overheads.
+	if Commercial(20) <= 0 {
+		t.Error("the smallest clubs have no commercial income at all")
+	}
+}
+
+// TestTransferBudgetComesFromRevenue pins the link that was broken on purpose.
+//
+// Budgets used to be half of whatever had piled up in the bank, so any drift in
+// the books eventually handed every club unlimited buying power. What a club can
+// spend has to follow what it earns; the balance is only the ceiling.
+func TestTransferBudgetComesFromRevenue(t *testing.T) {
+	w := leagueOf(2)
+	w.Leagues[0].PrizeMoney = 50_000_000
+	c := &w.Clubs[0]
+	c.Reputation, c.StadiumCap = 80, 50_000
+	c.TicketPrice = model.DefaultTicketPrice(c.Reputation)
+
+	// Flush with cash: the budget is capped by revenue, not by the balance.
+	c.Balance = 10_000_000_000
+	rich := TransferBudget(w, c)
+	if rich >= c.Balance {
+		t.Errorf("a club with %d in the bank may spend %d", c.Balance, rich)
+	}
+	if rich > Revenue(w, c) {
+		t.Errorf("budget %d exceeds a season's revenue of %d", rich, Revenue(w, c))
+	}
+
+	// Short of cash: the balance is the ceiling.
+	c.Balance = 1_000_000
+	if got := TransferBudget(w, c); got != 1_000_000 {
+		t.Errorf("a club with 1M in the bank may spend %d", got)
+	}
+
+	// Overdrawn: nothing at all.
+	c.Balance = -5_000_000
+	if got := TransferBudget(w, c); got != 0 {
+		t.Errorf("an overdrawn club may spend %d", got)
 	}
 }

@@ -1,15 +1,19 @@
 package season
 
-import "sportsim/engine/model"
+import (
+	"math"
+
+	"sportsim/engine/model"
+)
 
 // A club's books, and the constants that have to balance against each other.
 //
-// Money comes in two ways and goes out two ways. In: the gate, banked match by
-// match in game.playFixture, and the division's prize money, settled once a year
-// in payPrizeMoney. Out: wages, paid weekly, and running costs, paid alongside
-// them. Change any one of these four and the other three decide whether clubs
-// slowly go broke or slowly become untouchably rich — TestClubFinances is what
-// holds the four together.
+// Money comes in three ways and goes out two. In: the gate, banked match by
+// match in game.playFixture; commercial income, credited weekly; and the
+// division's broadcast money, settled once a year in payPrizeMoney. Out: wages
+// and running costs, both weekly. Move any one of these and the rest decide
+// whether clubs slowly go broke or slowly become untouchably rich — the money
+// checks in TestMultiSeason are what hold them together.
 const (
 	// homeGamesPerSeason is a club's share of a two-round league.
 	homeGamesPerSeason = 19
@@ -19,30 +23,52 @@ const (
 	// club sells out, a small one is around four fifths full.
 	typicalFill = 0.90
 
-	// averagePrizeShare is what a club expects from its division's pot before it
-	// knows where it will finish. payPrizeMoney pays the champion the full pot
-	// and the bottom club a third of it, so the table averages about two thirds.
-	averagePrizeShare = 0.67
+	// How a division's broadcast pot is split, after the pattern the real
+	// domestic deals use: half of it equally between the clubs, a quarter on
+	// where they finished, and a quarter on how much of the audience they bring.
+	//
+	// The last quarter is what makes the distribution realistic. Paying it out
+	// flat gave a mid-table Getafe the same television money as Real Madrid, so
+	// the small club in a rich division earned three times what it does in life
+	// while the giant earned a fraction — which is most of why the giants could
+	// not pay their wage bills.
+	prizeEqualShare  = 0.50
+	prizeMeritShare  = 0.25
+	prizeMarketShare = 0.25
 
-	// runningCostShare is the fraction of its revenue a club spends on
-	// everything that is not a player's wage: maintaining the stadium and
-	// staffing it on a matchday, the academy, the training ground, coaching and
-	// medical staff, travel, and the people who run the place.
+	// marketWeightExponent decides how steeply the audience quarter tilts towards
+	// the biggest clubs. Reputation runs 1-100 and the curve is deliberately
+	// sharp: the gap between a good side and a global one is not linear in
+	// anything, least of all in what a broadcaster will pay for them.
+	marketWeightExponent = 6.0
+
+	// Commercial income: sponsorship, shirt deals, merchandise, tours. It is the
+	// largest single stream in real football and the game had none of it — Real
+	// Madrid earn €594m of their €1,161m that way, more than gate and television
+	// together, which is exactly why they could not be made solvent by tuning
+	// anything else. It is steeper in reputation than any other stream, because
+	// it is the one that scales with global following rather than with a stadium
+	// or a league's collective deal.
+	commercialBase     = 4_000_000.0
+	commercialPeak     = 1_150_000_000.0
+	commercialExponent = 11.0
+
+	// runningCostShare is the fraction of revenue a club spends on everything
+	// that is not a player's wage: maintaining the stadium and staffing it on a
+	// matchday, the academy, the training ground, coaching and medical staff,
+	// travel, and the people who run the place.
 	//
-	// It is by far the largest number here, and it exists because wages were the
-	// only outgoing the simulation had. A real club spends most of what is left
-	// after wages on all of that, which is why one with revenue of €150m and a
-	// €60m wage bill does not bank €90m a year. Without it every club in the game
-	// did, and the world's money grew by €10bn a season — after six the median
-	// club sat on €186m and could buy anybody.
-	//
-	// The value is set so the world's money is flat in the first season and
-	// drifts up only slowly after it: wages fall as imported contracts are
-	// replaced by ones the wage curve prices (see invariant 14), so a share that
-	// balanced the books exactly at kickoff would have clubs hoarding by the
-	// fourth season and one that balanced them in the fourth would strangle
-	// everybody in the first.
-	runningCostShare = 0.60
+	// It exists because wages were once the only outgoing, and without it every
+	// club banked the difference: the world's money grew by €10bn a season and
+	// after six the median club sat on €186m and could buy anybody.
+	runningCostShare = 0.62
+
+	// transferBudgetShare is how much of a season's revenue a club will commit to
+	// fees. Budgets are set from revenue rather than from the bank balance so
+	// that money piling up over a long career cannot quietly turn into unlimited
+	// buying power — a club spends against what it earns, and the balance only
+	// caps it. See TransferBudget.
+	transferBudgetShare = 0.45
 )
 
 // SeasonGate is the money a club can expect to take on the gate across a
@@ -56,14 +82,70 @@ func SeasonGate(c *model.Club) int64 {
 	return int64(float64(c.StadiumCap) * float64(c.TicketPrice) * homeGamesPerSeason * typicalFill)
 }
 
-// Revenue is what a club expects to earn across a season: the gate, plus the
-// television money its division pays.
-func Revenue(w *model.World, c *model.Club) int64 {
-	rev := SeasonGate(c)
-	if l := w.League(c.LeagueID); l != nil {
-		rev += int64(float64(l.PrizeMoney) * averagePrizeShare)
+// Commercial is a club's sponsorship, merchandising and touring income across a
+// season, which follows how big a name it is and nothing else.
+func Commercial(rep uint8) int64 {
+	return int64(commercialBase + commercialPeak*math.Pow(float64(rep)/100, commercialExponent))
+}
+
+// marketWeight is a club's pull on a broadcast audience.
+func marketWeight(rep uint8) float64 {
+	return math.Pow(float64(rep)/100, marketWeightExponent)
+}
+
+// PrizeShare is the fraction of its division's pot a club takes, finishing in
+// the given place of n. Shares across a division sum to one, so the pot is the
+// whole broadcast deal rather than the champion's cheque.
+func PrizeShare(w *model.World, c *model.Club, place, n int) float64 {
+	if c == nil || n <= 0 {
+		return 0
 	}
-	return rev
+	share := prizeEqualShare / float64(n)
+
+	if n > 1 {
+		// Merit runs from the whole of its quarter for the champion down to none
+		// for the bottom club, so the average across the table is half of it.
+		merit := 1 - float64(place)/float64(n-1)
+		share += prizeMeritShare * merit * 2 / float64(n)
+	} else {
+		share += prizeMeritShare
+	}
+
+	if l := w.League(c.LeagueID); l != nil {
+		var total float64
+		for _, id := range l.ClubIDs {
+			if other := w.Club(id); other != nil {
+				total += marketWeight(other.Reputation)
+			}
+		}
+		if total > 0 {
+			share += prizeMarketShare * marketWeight(c.Reputation) / total
+		}
+	}
+	return share
+}
+
+// ExpectedPrize is the broadcast money a club can plan around before a ball is
+// kicked, which is its share from a mid-table finish.
+func ExpectedPrize(w *model.World, c *model.Club) int64 {
+	l := w.League(c.LeagueID)
+	if l == nil {
+		return 0
+	}
+	n := len(l.ClubIDs)
+	if n == 0 {
+		return 0
+	}
+	return int64(float64(l.PrizeMoney) * PrizeShare(w, c, n/2, n))
+}
+
+// Revenue is what a club expects to earn across a season: the gate, the
+// television money its division pays, and its commercial income.
+func Revenue(w *model.World, c *model.Club) int64 {
+	if c == nil {
+		return 0
+	}
+	return SeasonGate(c) + ExpectedPrize(w, c) + Commercial(c.Reputation)
 }
 
 // RunningCosts is what a club spends in a week on everything that is not a
@@ -78,4 +160,33 @@ func RunningCosts(w *model.World, c *model.Club) int64 {
 		return 0
 	}
 	return int64(float64(Revenue(w, c)) * runningCostShare / 52)
+}
+
+// CommercialIncome is the week's share of a club's commercial deals.
+func CommercialIncome(c *model.Club) int64 {
+	if c == nil {
+		return 0
+	}
+	return Commercial(c.Reputation) / 52
+}
+
+// TransferBudget is what a club will commit to fees over a season: a share of
+// what it earns, and never more than it actually has in the bank.
+//
+// Taking it from revenue rather than from the balance is deliberate. Budgets
+// used to be half of whatever had accumulated, so a long career with any drift
+// at all in the books ended with every club able to buy anybody. What a club can
+// spend should follow what it earns; the balance is the ceiling, not the source.
+func TransferBudget(w *model.World, c *model.Club) int64 {
+	if c == nil {
+		return 0
+	}
+	budget := int64(float64(Revenue(w, c)) * transferBudgetShare)
+	if c.Balance < budget {
+		budget = c.Balance
+	}
+	if budget < 0 {
+		budget = 0
+	}
+	return budget
 }

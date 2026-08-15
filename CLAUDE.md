@@ -61,9 +61,9 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   `game/transfers.go` owns the market: `Search` over a `SearchFilter`, the `Target` rows it
   returns, the shortlist, and `Quote`/`Renewal`, which price a signing without committing to
   it — see invariant 13.
-  `AdvanceDay()` is the heartbeat: it plays the day's fixtures, applies recovery, pays the week's
-  bills on Mondays, trains on the 1st of the month, runs the AI market, then moves the clock. **A second
-  frontend (HTTP, mobile) is a new package beside `ui/tui`, not a rewrite — so nothing that belongs
+  `AdvanceDay()` is the heartbeat: it plays the day's fixtures, applies recovery, settles the
+  week's money on Mondays, trains on the 1st of the month, runs the AI market, then moves the clock.
+  **A second frontend (HTTP, mobile) is a new package beside `ui/tui`, not a rewrite — so nothing that belongs
   to the simulation may leak into a UI package, and nothing terminal-shaped may leak into `game`.**
   `KickOff()` (in `game/live.go`) is the one place that breaks the once-a-day rhythm: it hands back a
   `LiveMatch` for the managed club's fixture and *holds the rest of the day back* until `AdvanceDay`
@@ -81,7 +81,7 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   **`engine/season`** owns calendar, tables and rollover, and is the one engine package that
   imports another (`engine/match`, for the box score and player lines a played `Fixture` keeps, so
   that a match report has a single definition); `finance.go` holds the club economy — `SeasonGate`,
-  `Revenue`, `RunningCosts` and the constants that balance against prize money, see invariant 14;
+  `Commercial`, `PrizeShare`, `Revenue`, `RunningCosts` and `TransferBudget`, see invariant 14;
   **`engine/dev`** owns growth/decline/fitness/morale/valuation; **`engine/transfer`** owns pricing
   (`AskingPrice`, and `PriceList` for pricing a whole market at once), negotiation (`WageDemand`,
   `Consider`, `HaggleFloor`) and the AI market (`Need`, `RunAI`); **`engine/rng`** is the single
@@ -210,20 +210,34 @@ few simulated seasons.
     six thousand times over is slow enough that the screen cannot re-search as the manager types.
     `transfer.NewPriceList` establishes every pecking order once and `Search` prices from that.
     Reaching for `AskingPrice` inside a loop over players puts the quadratic cost straight back.
-14. **A club's books balance across four flows, and they only disagree slowly.**
-    Money comes in twice — gate receipts, banked match by match in `game.playFixture`, and prize
-    money, settled once a year in `season.payPrizeMoney` — and goes out twice, both weekly in
-    `game.payBills`: wages, and the running costs of `season.RunningCosts`. The constants that tie
-    them together live in `engine/season/finance.go`.
+14. **A club's books balance across five flows, and they only disagree slowly.** Everything lives
+    in `engine/season/finance.go`. In: **gate receipts**, banked match by match in
+    `game.playFixture`; **commercial income**, credited weekly; and **broadcast money**, settled
+    once a year in `season.payPrizeMoney`. Out, both weekly in `game.settleWeek`: **wages** and
+    **running costs**.
 
-    Two rules keep them honest. **Gate receipts belong to the match they were taken at**, so
-    nothing may add a season's worth again at the rollover; doing exactly that paid every club
-    twice for the same nineteen home games. And **running costs are sized against revenue, not
-    against the wage bill**, so a club cannot sell its way out of its overheads — that is what
-    stops a relegated side shedding wages until it is comfortable. Wages alone were once the only
-    outgoing, and the world's money grew by €10bn a season until the median club could buy
-    anybody. `TestPrizeMoneyPaidOnce`, `TestRunningCostsScaleWithRevenue` and the money checks in
-    `TestMultiSeason` guard all of it.
+    Four rules keep them honest.
+
+    - **Gate receipts belong to the match they were taken at**, so nothing may add a season's
+      worth again at the rollover — doing exactly that paid every club twice for the same
+      nineteen home games, invisibly, because ticket prices were zero at the time.
+    - **Running costs are sized against revenue, not against the wage bill**, so a club cannot
+      sell its way out of its overheads. Wages alone were once the only outgoing and the world's
+      money grew by €10bn a season.
+    - **Revenue has to be as skewed as the wage bills are.** This is the load-bearing one, and
+      three separate attempts to fix the giants by tuning costs failed on it. At a stable world
+      total a club is solvent exactly when its share of world revenue exceeds its share of world
+      wages, which is a property of the *distributions* and cannot be tuned away with a single
+      constant. Real Madrid pay 4.8% of the world's wages, so they need about 4.8% of its
+      revenue; modelling only gate and a flat league pot gave them 1.0% and they lost €114m a
+      year at a running-cost share of *zero*. `season.Commercial` is what closes it — sponsorship
+      and merchandise are the largest stream in real football (€594m of Real Madrid's €1,161m)
+      and the game had none of it.
+    - **`League.PrizeMoney` is the division's whole broadcast deal, not the champion's cheque.**
+      `PrizeShare` splits it half equally, a quarter on finishing position and a quarter on
+      market size, and the shares sum to one. The market quarter matters as much as the total:
+      while the pot was paid out flat, a mid-table Getafe drew the same television money as Real
+      Madrid.
 
     `TicketPrice` and `Tactics` are **derived at load** in `pack`'s read loop rather than stored,
     for the reason in invariant 1: a second copy drifts. It was `TicketPrice` being computed by
@@ -232,10 +246,16 @@ few simulated seasons.
     A club's income is not something to add a field for without checking `pack` actually persists
     it.
 
-    What is *not* solved: a handful of elite clubs carry imported wage bills larger than their
-    whole revenue — Real Madrid's €263m against €149m — and no cost-side tuning reaches them,
-    because they lose money at a running-cost share of zero. That needs commercial revenue the
-    game does not model, and it cannot be fixed by moving `runningCostShare`.
+    **Transfer budgets come from revenue, never from the balance** (`season.TransferBudget`, used
+    by `rebalanceBudgets`). All spending is gated on `Club.TransferBudget` — `transfer.CanAfford`
+    never looks at `Balance` — so while the budget was half of whatever had accumulated, any
+    drift in the books eventually handed every club unlimited buying power. Taking it from
+    revenue with the balance as a ceiling is what makes the remaining slow drift harmless.
+
+    `TestPrizeMoneyPaidOnce`, `TestPrizeMoneyFollowsTheAudience`, `TestCommercialCarriesTheGiants`,
+    `TestRunningCostsScaleWithRevenue`, `TestTransferBudgetComesFromRevenue` and the money checks
+    in `TestMultiSeason` guard all of it. The figures were calibrated against the Deloitte
+    Football Money League, and `game.Finances` is the one query a frontend should use.
 15. **Nobody moves club for a pay cut.** `dev.WageFor` draws the wage curve for a player of a
     given standing, and it is flatter than the wages the squads were imported on: right through
     the middle of the league, but a quarter of what an international already earns. Club wage
