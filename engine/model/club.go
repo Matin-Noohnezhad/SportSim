@@ -33,6 +33,15 @@ type Club struct {
 	IsHuman bool // true for the club the player manages
 }
 
+// DefaultTicketPrice is what a club of the given standing charges on the gate.
+//
+// It is derived from reputation rather than stored in the packed database, for
+// the same reason a player's rating is: there is then no second copy of it that
+// can be written out stale. A club that never sets a price still has one, which
+// matters because gate receipts are the only income a club has between the last
+// day of one season and the first prize cheque of the next.
+func DefaultTicketPrice(rep uint8) uint32 { return uint32(12 + int(rep)/2) }
+
 // Tactics captures the instructions a manager sets. Values are 0-100 sliders
 // unless noted, which keeps the match engine free of special cases.
 type Tactics struct {

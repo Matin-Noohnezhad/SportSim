@@ -17,6 +17,12 @@ import (
 // go. Taking charge of a match changes what the manager can do to it, never how
 // it is simulated, and a match left half-watched is finished by the engine when
 // the day is advanced.
+//
+// Everything decided from the touchline lasts ninety minutes and no longer: the
+// shape, the instructions and the substitutions all live on the match.Side and
+// are thrown away with it at full time. The club's own selection and tactics are
+// what the manager set before kickoff, and only the tactics screen changes them
+// — see the note on SetTactics.
 type LiveMatch struct {
 	g *Game
 	f *season.Fixture
@@ -195,7 +201,9 @@ func (lm *LiveMatch) Substitute(pitchIdx, benchIdx int) (bool, string) {
 	return true, fmt.Sprintf("%s on for %s.", on[benchIdx].Name, off.Name)
 }
 
-// SetFormation changes the club's shape without changing who is on the pitch.
+// SetFormation changes the club's shape for the rest of this match without
+// changing who is on the pitch. The club reverts to the shape set on the tactics
+// screen for the next fixture.
 func (lm *LiveMatch) SetFormation(f model.Formation) (bool, string) {
 	t := lm.Tactics()
 	if t.Formation == f {
@@ -205,16 +213,21 @@ func (lm *LiveMatch) SetFormation(f model.Formation) (bool, string) {
 	if err := lm.l.SetTactics(lm.us, t); err != nil {
 		return false, capitalise(err.Error()) + "."
 	}
-	lm.g.World.Club(lm.g.World.HumanClubID).Tactics.Formation = f
 	return true, fmt.Sprintf("Switched to %s.", f)
 }
 
-// SetTactics applies new instructions to the side already on the pitch.
+// SetTactics applies new instructions to the side already on the pitch, for this
+// match only.
+//
+// It deliberately does not write back to the club. A touchline change is a
+// response to how one game is going — going three at the back to see out a lead,
+// pushing the line up when chasing — and carrying it into the next fixture would
+// silently rewrite a selection the manager made in cold blood. The tactics screen
+// is where a lasting change is made; here the whistle takes it all back.
 func (lm *LiveMatch) SetTactics(t model.Tactics) (bool, string) {
 	if err := lm.l.SetTactics(lm.us, t); err != nil {
 		return false, capitalise(err.Error()) + "."
 	}
-	lm.g.World.Club(lm.g.World.HumanClubID).Tactics = t
 	return true, "Instructions passed on."
 }
 

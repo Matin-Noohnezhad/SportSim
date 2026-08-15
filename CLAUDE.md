@@ -57,8 +57,12 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   `game/stats.go` compiles the season's charts — scorers, assists, clean sheets, ratings, cards —
   and the division's aggregate summary; a chart is a filter, a sort and a truncation over one pass
   of the players, so adding one is a call to `topBy`, not a new query.
-  `AdvanceDay()` is the heartbeat: it plays the day's fixtures, applies recovery, pays wages on
-  Mondays, trains on the 1st of the month, runs the AI market, then moves the clock. **A second
+  `game/report.go` builds the `MatchReport` both match screens draw — see invariant 12.
+  `game/transfers.go` owns the market: `Search` over a `SearchFilter`, the `Target` rows it
+  returns, the shortlist, and `Quote`/`Renewal`, which price a signing without committing to
+  it — see invariant 13.
+  `AdvanceDay()` is the heartbeat: it plays the day's fixtures, applies recovery, pays the week's
+  bills on Mondays, trains on the 1st of the month, runs the AI market, then moves the clock. **A second
   frontend (HTTP, mobile) is a new package beside `ui/tui`, not a rewrite — so nothing that belongs
   to the simulation may leak into a UI package, and nothing terminal-shaped may leak into `game`.**
   `KickOff()` (in `game/live.go`) is the one place that breaks the once-a-day rhythm: it hands back a
@@ -74,13 +78,24 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   mechanics, `live.go` owns the clock (`Live`, and the touchline actions `Substitute`, `SetTactics`,
   `TakeCharge`), `side.go` turns a squad into eleven players and a strength. **New match logic goes in
   `Live.playMinute`, never in a caller** — a second minute loop is the one thing invariant 6 forbids.
-  **`engine/season`** owns calendar, tables and rollover;
-  **`engine/dev`** owns growth/decline/fitness/morale/valuation; **`engine/transfer`** owns pricing,
-  negotiation and the AI market; **`engine/rng`** is the single random source.
+  **`engine/season`** owns calendar, tables and rollover, and is the one engine package that
+  imports another (`engine/match`, for the box score and player lines a played `Fixture` keeps, so
+  that a match report has a single definition); `finance.go` holds the club economy — `SeasonGate`,
+  `Revenue`, `RunningCosts` and the constants that balance against prize money, see invariant 14;
+  **`engine/dev`** owns growth/decline/fitness/morale/valuation; **`engine/transfer`** owns pricing
+  (`AskingPrice`, and `PriceList` for pricing a whole market at once), negotiation (`WageDemand`,
+  `Consider`, `HaggleFloor`) and the AI market (`Need`, `RunAI`); **`engine/rng`** is the single
+  random source.
 - **`ui/tui`** is Bubble Tea: `Model` in `app.go` (state + key handling), rendering in `view.go`,
-  the match feed and touchline panels in `match.go`, Lip Gloss styles in `styles.go`. `ScreenMatch`
+  the match feed and touchline panels in `match.go`, the tabbed match report in `report.go`, the
+  transfer market in `transfers.go`, Lip Gloss styles in `styles.go`. `ScreenMatch`
   intercepts keys *before* the global bindings, because from the touchline `s` and `t` are the
-  substitution and shape panels rather than the squad and tactics screens. `ScreenTable` and
+  substitution and shape panels rather than the squad and tactics screens. `ScreenTransfers`
+  intercepts them the same way, but only while a filter field or the bid panel has focus: a
+  name being typed into the market must not be read as a request to change screen, and the
+  moment focus returns to the results the single letters are global bindings again. That is
+  what `market.focus == filterNone` means, and why every filter is edited through it rather
+  than through a modal search prompt. `ScreenTable` and
   `ScreenStats` are two views of one division and share `keyTable`, with `tab` between them; the
   charts sit two abreast on a wide terminal and stack on a narrow one, which is why `statRows` is
   told how many rows of them there will be.
@@ -96,6 +111,14 @@ few simulated seasons.
    `CurrentAbility()` is the rating in the player's best position. There is deliberately no "overall"
    field that could drift out of step with the attributes — do not add one, and do not cache ratings
    in a struct field. Training moves attributes; the rating follows.
+
+   A player has **up to three natural positions**, not one. The dataset's `player_positions` column
+   is comma-separated and `parsePositions` keeps all of it: of the 6,411 players in `world.dat`,
+   2,358 list one position, 2,133 list two and 1,920 list three. `Primary()` is only the first of
+   them; `NaturalPositions()` is all of them and `PlaysPos` tests the whole list. Anything that
+   asks "can this player do this job" — a search filter, a squad-depth count, the familiarity
+   penalty in `Rating` — must use the list, because a filter that consulted `Primary()` alone
+   would miss two thirds of the candidates.
 2. **Everything random comes from `engine/rng`.** Never use `math/rand`. `rng.Derive(seed, key)` gives
    a match its own generator keyed on the fixture, so a match is reproducible regardless of what else
    happened that day and adding a draw elsewhere does not shift match outcomes. Save files persist the
@@ -151,6 +174,77 @@ few simulated seasons.
     cleared in `season.resetSeasonStats`**, or a striker carries ninety goals into next season
     (`TestStatsResetEachSeason`). Adding a field to the tallies also means bumping
     `store.formatVersion` — see invariant 5.
+12. **A match is shown through one report, however it is opened.** `game.MatchReport` is what both
+    match screens draw: the touchline builds one from the live `match.Result` every frame, the
+    fixture list rebuilds one from what `season.Fixture` kept of a match played months ago, and
+    `TestMatchReport` asserts the two agree field for field. Anything a screen wants to show about a
+    match belongs on that struct, filled in by both builders — a view that reaches past it into
+    `match.Result` works on the touchline and shows nothing from the fixture list. What a fixture
+    keeps is deliberately narrow: the box score and the incidents that decided the match (goals and
+    sendings-off), plus player ratings for the managed club's own matches only, since a division's
+    worth would be a squad of lines per fixture. Widening it costs the save file 4,676 times over,
+    so weigh it, and bump `store.formatVersion` when you do — see invariant 5.
+    The statistics tabs do not stop the clock: the touchline panels of invariant 10 are decisions
+    and pause the match, a page of figures is not.
+
+    A touchline decision is also **spent when the whistle goes**. Shape, instructions and
+    substitutions all live on the `match.Side`, which is built fresh from `Club.Tactics`,
+    `Club.Lineup` and `Club.Bench` at every kickoff and thrown away at full time, so a manager who
+    goes three at the back to see out a lead has not asked to play that way in November. Nothing on
+    `LiveMatch` may write back to the club — `SetFormation` and `SetTactics` once did, and it
+    quietly rewrote a selection the manager had made in cold blood. The lasting decisions are made
+    on the squad and tactics screens through `Game.SetFormation`, `AutoSelect` and `SwapLineup`,
+    which are the only places `Club.Tactics`/`Lineup`/`Bench` change (besides
+    `season.Rollover`'s summer clear-out). `TestTouchlineChangesAreForOneMatch` guards it.
+13. **Asking what a signing would cost must not cost anything.** `game.Quote` and
+    `transfer.WageDemand` draw no randomness and change no state, so the market screen can price
+    a player on every keystroke and open a bid panel without the act of looking altering what
+    happens next. `TestQuoteIsFree` asserts the RNG state, the player's club and the budget are
+    all untouched by repeated quoting. This is the same bargain as invariant 6: a manager must
+    not be able to reroll an outcome by inspecting it. Anything the bid panel wants to show has
+    to be derivable without a draw — if a future negotiation needs randomness, it belongs in
+    `Consider` at the moment the offer is actually made, never in the quote.
+
+    Pricing the whole market is also a *linear* pass, not a quadratic one. `AskingPrice` consults
+    the player's place in their club's pecking order, which costs a scan of the world; asking it
+    six thousand times over is slow enough that the screen cannot re-search as the manager types.
+    `transfer.NewPriceList` establishes every pecking order once and `Search` prices from that.
+    Reaching for `AskingPrice` inside a loop over players puts the quadratic cost straight back.
+14. **A club's books balance across four flows, and they only disagree slowly.**
+    Money comes in twice — gate receipts, banked match by match in `game.playFixture`, and prize
+    money, settled once a year in `season.payPrizeMoney` — and goes out twice, both weekly in
+    `game.payBills`: wages, and the running costs of `season.RunningCosts`. The constants that tie
+    them together live in `engine/season/finance.go`.
+
+    Two rules keep them honest. **Gate receipts belong to the match they were taken at**, so
+    nothing may add a season's worth again at the rollover; doing exactly that paid every club
+    twice for the same nineteen home games. And **running costs are sized against revenue, not
+    against the wage bill**, so a club cannot sell its way out of its overheads — that is what
+    stops a relegated side shedding wages until it is comfortable. Wages alone were once the only
+    outgoing, and the world's money grew by €10bn a season until the median club could buy
+    anybody. `TestPrizeMoneyPaidOnce`, `TestRunningCostsScaleWithRevenue` and the money checks in
+    `TestMultiSeason` guard all of it.
+
+    `TicketPrice` and `Tactics` are **derived at load** in `pack`'s read loop rather than stored,
+    for the reason in invariant 1: a second copy drifts. It was `TicketPrice` being computed by
+    the importer and then never written to the pack that made every club charge nothing on the
+    gate, leaving wages the only flow that moved and balances falling in a straight line all year.
+    A club's income is not something to add a field for without checking `pack` actually persists
+    it.
+
+    What is *not* solved: a handful of elite clubs carry imported wage bills larger than their
+    whole revenue — Real Madrid's €263m against €149m — and no cost-side tuning reaches them,
+    because they lose money at a running-cost share of zero. That needs commercial revenue the
+    game does not model, and it cannot be fixed by moving `runningCostShare`.
+15. **Nobody moves club for a pay cut.** `dev.WageFor` draws the wage curve for a player of a
+    given standing, and it is flatter than the wages the squads were imported on: right through
+    the middle of the league, but a quarter of what an international already earns. Club wage
+    budgets, by contrast, come straight from the imported bill (`WageBudget = bill * 1.15`), so
+    quoting demands from the bare curve lets every signing halve the buyer's wage bill and the
+    market costs nothing. `dev.WageAsk` anchors the ask at the player's current terms, and every
+    negotiation — `transfer.WageDemand`, `RunAI`, `Sell`, `OfferContract`, `Renewal`, and the
+    renewals in `season.Rollover` — goes through it. `WageFor` is still correct for a player who
+    has no current deal to anchor on: a regen being generated, or a free agent being picked up.
 
 ### Calibration is a test, not a comment
 

@@ -283,6 +283,12 @@ func Decode(in io.Reader) (*Data, error) {
 		c.TrainingFacilities = r.u8()
 		c.YouthFacilities = r.u8()
 		c.YouthRecruitment = r.u8()
+		// Neither the ticket price nor the opening tactics are in the file: both
+		// follow from what is, so writing them would only create a second copy to
+		// keep in step. The price the importer computed is the same one this
+		// derives — it was never persisted, which left every club charging nothing
+		// on the gate and losing its wage bill every week with no income at all.
+		c.TicketPrice = model.DefaultTicketPrice(c.Reputation)
 		c.Tactics = model.DefaultTactics()
 	}
 

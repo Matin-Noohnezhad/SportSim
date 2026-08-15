@@ -1,10 +1,15 @@
 // Package season owns the competition calendar: fixture lists, league tables
 // and the promotion and relegation that closes out a campaign.
+//
+// It reaches into engine/match for the box score and player lines a played
+// fixture keeps, so that a match report has one definition rather than a copy
+// here that would drift out of step with the engine that fills it in.
 package season
 
 import (
 	"sort"
 
+	"sportsim/engine/match"
 	"sportsim/engine/model"
 	"sportsim/engine/rng"
 )
@@ -19,7 +24,24 @@ type Goal struct {
 	Assist  uint32
 }
 
+// Dismissal records a sending-off. Goals and dismissals are the two incidents
+// that decide a match, which is why they are the two a fixture keeps: the rest
+// of the commentary is colour, and storing every event of 4,676 fixtures to
+// replay it costs far more than reading it back is worth.
+type Dismissal struct {
+	Minute uint8
+	Away   bool // shown to a player of the away side
+	Player uint32
+	Second bool // a second booking rather than a straight red
+}
+
 // Fixture is one scheduled match.
+//
+// A played one keeps enough of its match report to be looked over again months
+// later: the box score for both sides and the incidents that decided it. Player
+// ratings are the exception — they are kept only for matches the managed club
+// played, since those are the only ratings any screen shows and a whole
+// division's would be a squad's worth of lines per fixture.
 type Fixture struct {
 	LeagueID uint16
 	Round    uint16
@@ -32,6 +54,9 @@ type Fixture struct {
 	AwayGoals  uint8
 	Attendance uint32
 	Goals      []Goal
+	Reds       []Dismissal
+	Stats      [2]match.TeamStats
+	Lines      []match.PlayerLine
 }
 
 // Schedule is every fixture in the game world for one season.

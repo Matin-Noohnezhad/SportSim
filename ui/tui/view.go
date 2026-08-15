@@ -45,6 +45,8 @@ func (m *Model) View() string {
 		body = m.viewPlayerDetail()
 	case ScreenMatch:
 		body = m.viewMatch()
+	case ScreenReport:
+		body = m.viewReport()
 	case ScreenSeasonEnd:
 		body = m.viewSeasonEnd()
 	}
@@ -88,19 +90,30 @@ func (m *Model) footer() string {
 	case ScreenStats:
 		keys = "[←→] change division  [tab] back to the table  [space] advance day  [q] back"
 	case ScreenTransfers:
-		keys = "[/] search  [↑↓] move  [enter] bid  [v] profile  [q] back"
+		switch {
+		case m.mk.bid != nil:
+			keys = "[↑↓] field  [←→] adjust the offer  [enter] submit the bid  [esc] cancel"
+		case m.mk.focus != filterNone:
+			keys = "[type] filter  [←→] change  [tab] next filter  [enter] back to the list"
+		default:
+			keys = "[tab] filters  [↑↓] move  [enter] bid  [*] shortlist  [n] what you need  [o] sort  [c] clear  [v] profile  [q] back"
+		}
+	case ScreenFixtures:
+		keys = "[↑↓] move  [enter] match report  [space] advance day  [q] back"
+	case ScreenReport:
+		keys = "[tab] [←→] change tab  [esc] back to the fixtures"
 	case ScreenMatch:
 		switch {
 		case m.mv == nil || m.mv.done:
-			keys = "[enter] continue"
+			keys = "[tab] [←→] change tab  [enter] continue"
 		case m.mv.panel == panelSubs:
 			keys = "[↑↓] move  [enter] choose  [esc] back to the match"
 		case m.mv.panel == panelShape:
 			keys = "[↑↓] move  [←→] change  [esc] back to the match"
 		case m.mv.managing():
-			keys = "[space] pause  [s] substitutions  [t] shape  [enter] skip to full time  [+/-] speed"
+			keys = "[space] pause  [s] subs  [t] shape  [tab] stats  [enter] skip to full time  [+/-] speed"
 		default:
-			keys = "[enter] skip to full time  [+/-] speed"
+			keys = "[tab] statistics  [enter] skip to full time  [+/-] speed"
 		}
 	case ScreenSeasonEnd:
 		keys = "[any key] continue to the new season"
@@ -229,7 +242,8 @@ func (m *Model) viewHome() string {
 		case 1:
 			when = "tomorrow"
 		}
-		b.WriteString("  " + stHeader.Render("NEXT MATCH") + "\n")
+		b.WriteString("  " + stHeader.Render("NEXT MATCH") +
+			stMuted.Render("   [f] fixtures and past match reports") + "\n")
 		b.WriteString(fmt.Sprintf("  %s (%s)  %s  %s\n\n",
 			stBold.Render(g.World.ClubName(opp)), venue,
 			stMuted.Render(f.Date.Short()), stMuted.Render("— "+when)))
@@ -259,9 +273,11 @@ func (m *Model) viewHome() string {
 
 	// Club standing and finances.
 	b.WriteString("  " + stHeader.Render("CLUB") + "\n")
-	wage := g.World.WageBill(c.ID)
-	b.WriteString(fmt.Sprintf("  Balance %s    Transfer budget %s    Wages %s of %s per week\n",
-		money(c.Balance), money(c.TransferBudget), money(wage), money(c.WageBudget)))
+	fin := g.Finances()
+	b.WriteString(fmt.Sprintf("  Balance %s    Transfer budget %s    Revenue %s per season\n",
+		money(fin.Balance), money(fin.TransferBudget), money(fin.Revenue)))
+	b.WriteString(fmt.Sprintf("  Wages %s of %s per week    Running costs %s per week\n",
+		money(fin.Wages), money(fin.WageBudget), money(fin.RunningCosts)))
 	b.WriteString(fmt.Sprintf("  Squad %d players    Stadium %s    Reputation %d/100    %s\n\n",
 		g.World.SquadSize(c.ID), comma(int64(c.StadiumCap)), c.Reputation,
 		stMuted.Render(transfer.WindowName(g.World.Date))))
@@ -285,8 +301,8 @@ func (m *Model) viewSquad() string {
 	rows := m.g.Squad()
 	var b strings.Builder
 	b.WriteString("\n  " + stHeader.Render(fmt.Sprintf(
-		"%-3s %-22s %-4s %3s %4s %4s %5s %5s %5s %4s %3s %3s %6s %10s",
-		"", "NAME", "POS", "AGE", "RAT", "POT", "FIT", "MOR", "FORM", "APP", "G", "A", "AVG", "VALUE")) + "\n")
+		"%-3s %-20s %-11s %3s %4s %4s %5s %5s %5s %4s %3s %3s %6s %10s",
+		"", "NAME", "POSITION", "AGE", "RAT", "POT", "FIT", "MOR", "FORM", "APP", "G", "A", "AVG", "VALUE")) + "\n")
 
 	visible := m.height - 8
 	if visible < 5 {
@@ -301,9 +317,9 @@ func (m *Model) viewSquad() string {
 		r := rows[i]
 		sel := i == m.squadCur
 
-		name := trunc(r.Name, 22)
+		name := trunc(r.Name, 20)
 		if r.Status != "" {
-			name = trunc(r.Name, 15) + " " + stBad.Render(trunc(r.Status, 6))
+			name = trunc(r.Name, 13) + " " + stBad.Render(trunc(r.Status, 6))
 		}
 		avg := "  -  "
 		if r.AvgRating > 0 {
@@ -314,8 +330,10 @@ func (m *Model) viewSquad() string {
 			form = "0"
 		}
 
-		line := fmt.Sprintf("%-3d %-22s %-4s %3d %4s %4d %5d %5d %5s %4d %3d %3d %6s %10s",
-			i+1, name, r.Position, r.Age,
+		// Every position the player is natural in, not just their best: which of
+		// them a player covers is exactly what decides whether the squad has cover.
+		line := fmt.Sprintf("%-3d %-20s %-11s %3d %4s %4d %5d %5d %5s %4d %3d %3d %6s %10s",
+			i+1, name, trunc(r.Positions, 11), r.Age,
 			ratingStyle(r.Rating).Render(fmt.Sprintf("%d", r.Rating)), r.Potential,
 			r.Fitness, r.Morale, form, r.Apps, r.Goals, r.Assists, avg,
 			transfer.Money(r.Value))
@@ -643,34 +661,52 @@ func reds(n int) string {
 
 // ---------------- fixtures ----------------
 
-func (m *Model) viewFixtures() string {
-	g := m.g
-	c := g.Club()
-	var b strings.Builder
-	b.WriteString("\n  " + stTitle.Render("Fixtures and results") + "\n\n")
-
+// myFixtures is the managed club's whole season in date order, which both the
+// fixture list and its cursor are built on.
+func (m *Model) myFixtures() []*season.Fixture {
+	c := m.g.Club()
+	if c == nil {
+		return nil
+	}
 	var mine []*season.Fixture
-	for i := range g.Sched.Fixtures {
-		f := &g.Sched.Fixtures[i]
+	for i := range m.g.Sched.Fixtures {
+		f := &m.g.Sched.Fixtures[i]
 		if f.Home == c.ID || f.Away == c.ID {
 			mine = append(mine, f)
 		}
 	}
 	sort.SliceStable(mine, func(a, b int) bool { return mine[a].Date < mine[b].Date })
+	return mine
+}
 
+// nextFixtureIndex is where in the list the next unplayed match sits, or the
+// last one once the season is over.
+func nextFixtureIndex(fixtures []*season.Fixture) int {
+	for i, f := range fixtures {
+		if !f.Played {
+			return i
+		}
+	}
+	return max(0, len(fixtures)-1)
+}
+
+func (m *Model) viewFixtures() string {
+	g := m.g
+	c := g.Club()
+	var b strings.Builder
+	b.WriteString("\n  " + stTitle.Render("Fixtures and results") +
+		stMuted.Render("   enter on a played match for its report") + "\n\n")
+
+	mine := m.myFixtures()
 	visible := m.height - 8
 	if visible < 6 {
 		visible = 6
 	}
-	// Centre the list on the next unplayed match.
-	next := 0
-	for i, f := range mine {
-		if !f.Played {
-			next = i
-			break
-		}
+	// Keep the cursor in view, centred while there is a season either side of it.
+	start := max(0, m.fixtureCur-visible/2)
+	if start+visible > len(mine) {
+		start = max(0, len(mine)-visible)
 	}
-	start := max(0, next-visible/2)
 
 	for i := start; i < len(mine) && i < start+visible; i++ {
 		f := mine[i]
@@ -678,26 +714,28 @@ func (m *Model) viewFixtures() string {
 		if f.Away == c.ID {
 			opp, venue = g.World.ClubName(f.Home), "A"
 		}
+		var line string
 		if !f.Played {
-			b.WriteString(fmt.Sprintf("  %-12s %s  %-26s %s\n",
-				f.Date.Short(), venue, trunc(opp, 26), stMuted.Render("—")))
-			continue
+			line = fmt.Sprintf("%-12s %s  %-26s %s",
+				f.Date.Short(), venue, trunc(opp, 26), stMuted.Render("—"))
+		} else {
+			ours, theirs := int(f.HomeGoals), int(f.AwayGoals)
+			if f.Away == c.ID {
+				ours, theirs = theirs, ours
+			}
+			res, st := "D", stMuted
+			switch {
+			case ours > theirs:
+				res, st = "W", stGood
+			case ours < theirs:
+				res, st = "L", stBad
+			}
+			line = fmt.Sprintf("%-12s %s  %-26s %s %s",
+				f.Date.Short(), venue, trunc(opp, 26),
+				st.Render(fmt.Sprintf("%s %d-%d", res, ours, theirs)),
+				stMuted.Render(scorerLine(g, f)))
 		}
-		ours, theirs := int(f.HomeGoals), int(f.AwayGoals)
-		if f.Away == c.ID {
-			ours, theirs = theirs, ours
-		}
-		res, st := "D", stMuted
-		switch {
-		case ours > theirs:
-			res, st = "W", stGood
-		case ours < theirs:
-			res, st = "L", stBad
-		}
-		b.WriteString(fmt.Sprintf("  %-12s %s  %-26s %s %s\n",
-			f.Date.Short(), venue, trunc(opp, 26),
-			st.Render(fmt.Sprintf("%s %d-%d", res, ours, theirs)),
-			stMuted.Render(scorerLine(g, f))))
+		b.WriteString("  " + m.selectable(line, i == m.fixtureCur) + "\n")
 	}
 	return b.String()
 }
@@ -714,51 +752,6 @@ func scorerLine(g *game.Game, f *season.Fixture) string {
 		}
 	}
 	return strings.Join(parts, ", ")
-}
-
-// ---------------- transfers ----------------
-
-func (m *Model) viewTransfers() string {
-	g := m.g
-	c := g.Club()
-	var b strings.Builder
-	b.WriteString("\n  " + stTitle.Render("Transfer market") + "   " +
-		stMuted.Render(transfer.WindowName(g.World.Date)) + "\n")
-	b.WriteString(fmt.Sprintf("  Budget %s    Wage room %s/wk\n\n",
-		money(c.TransferBudget), money(c.WageBudget-g.World.WageBill(c.ID))))
-
-	prompt := m.searchInput
-	if m.searchActive {
-		prompt += "▏"
-	}
-	b.WriteString("  " + stHeader.Render("SEARCH ") + stBold.Render(prompt) +
-		stMuted.Render("   press / to search by name, enter to bid") + "\n\n")
-
-	if len(m.searchResult) == 0 {
-		b.WriteString("  " + stMuted.Render("No players listed. Press / and type a name, then enter.") + "\n")
-		return b.String()
-	}
-
-	b.WriteString("  " + stHeader.Render(fmt.Sprintf("%-22s %-4s %3s %4s %4s %-20s %10s %9s",
-		"NAME", "POS", "AGE", "RAT", "POT", "CLUB", "ASKING", "WAGE")) + "\n")
-
-	visible := m.height - 12
-	if visible < 5 {
-		visible = 5
-	}
-	start := 0
-	if m.transferCur >= visible {
-		start = m.transferCur - visible + 1
-	}
-	for i := start; i < len(m.searchResult) && i < start+visible; i++ {
-		r := m.searchResult[i]
-		line := fmt.Sprintf("%-22s %-4s %3d %4s %4d %-20s %10s %9s",
-			trunc(r.Name, 22), r.Position, r.Age,
-			ratingStyle(r.Rating).Render(fmt.Sprintf("%d", r.Rating)), r.Potential,
-			trunc(r.Status, 20), transfer.Money(r.Value), transfer.Money(r.Wage))
-		b.WriteString("  " + m.selectable(line, i == m.transferCur) + "\n")
-	}
-	return b.String()
 }
 
 // ---------------- inbox ----------------
@@ -887,15 +880,6 @@ func trunc(s string, n int) string {
 		return string(r[:n])
 	}
 	return string(r[:n-1]) + "…"
-}
-
-func centre(s string, w int) string {
-	r := []rune(s)
-	if len(r) >= w {
-		return s
-	}
-	left := (w - len(r)) / 2
-	return strings.Repeat(" ", left) + s + strings.Repeat(" ", w-len(r)-left)
 }
 
 // lenVisible counts printable width, ignoring ANSI escape sequences.

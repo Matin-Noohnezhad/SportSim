@@ -21,7 +21,8 @@ current EA FC data.
    4. Brighton & Hove Albion    15   9   4   2   23    9   +14   31  WLWDDD
 
   CLUB
-  Balance €36.9M    Transfer budget €121.4M    Wages €3.4M of €3.9M per week
+  Balance €36.9M    Transfer budget €121.4M    Revenue €174.5M per season
+  Wages €3.4M of €3.9M per week    Running costs €2.0M per week
   Squad 23 players    Stadium 56,791    Reputation 94/100
 ```
 
@@ -31,9 +32,9 @@ current EA FC data.
 |---|---|
 | Binary | 6.1 MB, single file, no install |
 | Game database | 446 KB, embedded in the binary |
-| Memory in play | ~4 MB |
+| Memory in play | ~5 MB |
 | Startup | 20 ms |
-| Save file | ~580 KB |
+| Save file | ~830 KB, a season of match reports included |
 | Full European season | 4,676 matches in ~3 seconds |
 
 There is nothing to download at runtime and nothing to install. The whole
@@ -62,8 +63,9 @@ Saves live in `~/.sportsim/saves`.
 | `space` | advance one day |
 | `w` / `m` | fast-forward to your next match / 30 days |
 | `s` `t` `l` `f` `r` `i` | squad, tactics, league, fixtures, transfers, inbox |
-| `←` `→` | on the league screen, change division |
-| `tab` | on the league screen, switch between the table and the season statistics |
+| `←` `→` | on the league screen, change division; on the market, change the sort |
+| `tab` | switch view: the table and the season statistics, or a match report's pages |
+| `enter` | on the fixture list, open a played match's report |
 | `L` | toggle between a minute-by-minute feed and an instant result |
 | `S` | save |
 | `q` | back, or quit from the home screen |
@@ -76,6 +78,7 @@ change:
 | `space` | stop and restart the clock |
 | `s` | substitutions — pick who comes off, then who replaces them |
 | `t` | shape and instructions — formation, mentality, tempo, pressing and the rest |
+| `tab` `←` `→` | commentary, overview, key moments, player ratings |
 | `enter` | skip to full time; again to leave and let the day finish |
 | `+` / `-` | speed the feed up or slow it down |
 
@@ -84,11 +87,158 @@ into a decision. Five substitutions, and a goalkeeper can only be replaced by a
 goalkeeper. Changing formation keeps the same eleven on the pitch — they move
 into the new shape, your keeper stays in goal.
 
-Two things worth knowing. While you are on the touchline the rest of the day is
-held back: the other results, wages and the calendar only move once you leave.
+**Everything you do from the dugout lasts ninety minutes and no longer.** Go
+three at the back to see out a lead, throw a striker on, push the line up chasing
+a goal — at full time the club reverts to the shape, instructions and eleven you
+picked on the squad and tactics screens. Those are the lasting decisions, and
+they are where a permanent change is made; the touchline is for this match.
+
+Two more things worth knowing. While you are on the touchline the rest of the day
+is held back: the other results, wages and the calendar only move once you leave.
 And the engine stops picking your substitutions the moment you take charge — it
 will still force a change if you leave an injured player on, but the rest are
 yours to spend. Watch with `L` off and it manages the match for you, as before.
+
+## Match reports
+
+Every match has four pages, and `tab` moves between them: the commentary, an
+overview, the key moments and your players' ratings. They are there while the
+match is being played — the clock keeps running behind them, so checking the
+shot count costs you nothing — and they are what the screen settles on at full
+time.
+
+```
+  COMMENTARY │ OVERVIEW │ KEY MOMENTS │ PLAYERS
+
+  MATCH STATS         Athletic Club  v  Girona FC
+
+  Possession              60%  ██████████████▒▒▒▒▒▒▒▒▒▒  40%
+  Shots                    18  █████████████████████▒▒▒  3
+  Shots on target           7  █████████████████████▒▒▒  1
+  Expected goals         2.61  ██████████████████████▒▒  0.22
+  Corners                   3  █████████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  5
+  Fouls                     9  █████████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  14
+  Offsides                  0  ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  1
+  Yellow cards              0  ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  3
+  Red cards                 0  ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  1
+```
+
+Key moments is the match in the half-dozen lines that decided it — the goals,
+who assisted them, which came from the spot, and the sendings-off — in the order
+they happened, with the score as it stood after each:
+
+```
+   MIN  EVENT          PLAYER               ASSIST               CLUB               SCORE
+    1'  GOAL           Jauregizar           Nico Williams        Athletic Club      1-0
+    6'  GOAL           Iñaki Williams       Nico Williams        Athletic Club      2-0
+   26'  RED CARD       David López                               Girona FC
+   81'  PENALTY        Sancet                                    Athletic Club      3-0
+   84'  GOAL           Nico Williams        Yuri Berchiche       Athletic Club      4-0
+```
+
+The same report is on `f`, the fixture list: `enter` on any match you have
+already played reopens it, months later, exactly as it read at full time. A
+played fixture keeps its box score and its incidents, and your own matches keep
+their player ratings too — the commentary is the one page a match you are no
+longer watching cannot offer.
+
+## The transfer market
+
+`r` opens the market on all 6,400-odd players in the world, best first. You
+narrow it down rather than guessing a name: the filter bar is always on screen,
+`tab` steps through it, and the list re-searches as you type.
+
+```
+  NAME [any           ]  POS ‹CM  ›  MAX AGE [23 ]  MIN RAT [80 ]  MAX FEE €M [any ]  SHOW ‹all players   ›
+  sorted by rating  ·  14 players
+
+  NAME                 POSITION    AGE  RAT  POT    FIT CLUB                  ASKING     WAGE
+ ★ J. Bellingham       CAM/CM       22   88   93  +4 CM Real Madrid          €332.7M    €200k
+   Pedri               CM/CDM/CAM   23   89   93  +5 CM FC Barcelona         €384.8M    €170k
+   W. Endrick          CM/CAM       21   82   90  +1 CM Olympique Lyonnais ⧗  €48.2M     €61k
+```
+
+Fields you type into are bracketed; fields that cycle through a list sit between
+arrows and move with `←` `→`. Three columns are worth explaining:
+
+- **POSITION** is every position the player is natural in, not just their best.
+  Two thirds of the database list two or three, and a search for a centre
+  midfielder that only looked at the first would miss most of them.
+- **FIT** is what signing them would actually do to your side: how many rating
+  points they would add over the best you already have, and where. A dash means
+  they would not improve you. It is the column that answers "good compared with
+  what?".
+- **ASKING** is the selling club's price, not the book value, and it turns red
+  when it is beyond your budget — such players are still listed, because you may
+  be planning a sale to fund the move. `⧗` beside a club marks a deal running
+  out at the end of the season, which is why the fee is a fraction of the value.
+
+| Key | Action |
+|---|---|
+| `tab` `shift+tab` | move between the results and the filter fields |
+| `/` | jump straight to the name filter |
+| `enter` | on the list, open the bid panel; in a filter, go back to the list |
+| `*` | shortlist a player, or take them off it |
+| `n` | fill the filters with the position your squad is thinnest in |
+| `o` `←` `→` | change the sort: rating, improvement, potential, age, fee, wage |
+| `c` | clear the filters |
+| `v` | full profile |
+
+The shortlist is kept with your career, so it survives a save. `SHOW` switches
+the list between everybody, your shortlist, free agents, and players whose
+contracts expire this summer.
+
+`enter` opens the negotiation panel rather than firing a blind bid. It tells you
+what the club wants and what the player wants, and opens pre-filled with terms
+that would be accepted — so signing someone you have already decided on is still
+`enter` `enter` — but the fee, the wage and the contract length are all yours to
+move first. Clubs will come down a little from the asking price and no further,
+so there is real money in trying.
+
+```
+  ╭─────────────────────────────────────────────────────────╮
+  │ Bid for B. Saka  RW/RM · 24 · rated 86, potential 88    │
+  │                                                         │
+  │   Arsenal want   €123.1M                                │
+  │   He wants       €230k/wk                               │
+  │                                                         │
+  │   Fee          €113.2M                                  │
+  │   Wage        €230k/wk                                  │
+  │   Years              4                                  │
+  │                                                         │
+  │   budget €158.2M · wage room €778.7k/wk                 │
+  │   [↑↓] field  [←→] adjust  [enter] submit  [esc] cancel │
+  ╰─────────────────────────────────────────────────────────╯
+```
+
+Nobody moves club for a pay cut. A player under contract asks for at least what
+they already earn, which is what keeps wage demands and wage budgets — both
+derived from the squads as imported — on the same scale.
+
+## The club's money
+
+Four flows, all on the home screen:
+
+| | |
+|---|---|
+| **Gate receipts** | banked after every home match — the crowd that turned up × your ticket price |
+| **Prize money** | paid once, at the end of the season, scaled by where you finished: the champion takes the division's whole pot, the bottom club about a third of it |
+| **Wages** | out every Monday |
+| **Running costs** | out every Monday — the stadium, the staff, the academy, the training ground, travel |
+
+Running costs are sized against what the club earns rather than what it pays its
+players, so you cannot sell your way out of them. That is the trap to watch for
+after relegation: a wage bill that was comfortable in the top flight is not
+comfortable against a smaller pot, and the overheads do not fall to meet it.
+
+Your transfer budget is set at the summer rollover from what you actually have —
+roughly half of it — so a season spent in the red costs you the next one's
+signings as well.
+
+Two things are deliberately not modelled: commercial and sponsorship income, and
+any cost that isn't wages or general overheads. That mostly matters at the very
+top, where a handful of clubs — Real Madrid above all — carry wage bills bigger
+than their entire modelled revenue and will run at a loss whatever you do.
 
 ## Statistics
 
@@ -260,12 +410,23 @@ go test ./...
 | `TestLiveEqualsSim` | a match watched in fragments is identical to one played straight through |
 | `TestTakeChargeKeepsSubs` | the engine does not spend a manager's substitutions |
 | `TestLiveSubstitution` `TestLiveReshape` | touchline changes land, and obey the rules of the game |
+| `TestTouchlineChangesAreForOneMatch` | nothing decided in the dugout outlives the final whistle |
+| `TestClubHasGateIncome` | every club charges something at the turnstile |
+| `TestPrizeMoneyPaidOnce` | the rollover settles prize money and nothing else |
+| `TestRunningCostsScaleWithRevenue` | overheads follow what a club earns, not what it pays its players |
 | `TestVenueAlternation` | no club plays three league games running at the same ground |
 | `TestRoundRobinComplete` | every pair still meets twice, once at each ground |
-| `TestMultiSeason` | three seasons leave league sizes, squads and ages intact |
+| `TestMultiSeason` | three seasons leave league sizes, squads, ages and the money intact |
 | `TestSaveRoundTrip` | a save reloads and continues on the same random stream |
 | `TestSeasonStats` | the charts agree with the fixtures they were compiled from |
+| `TestMatchReport` | a match reopened from the fixture list reads as it did at full time |
+| `TestFixtureReportNavigation` | the fixture list opens a played match by keypress |
 | `TestStatsResetEachSeason` | no season tally survives the summer |
+| `TestMarketSearch` | every filter bites, a player is found by any of their positions, and the whole market searches fast enough to run on a keystroke |
+| `TestQuoteIsFree` | pricing a signing moves no money, no player and no random state |
+| `TestShortlist` | the shortlist round-trips through the search scope |
+| `TestImprovementIsAgainstOurSquad` | the fit column measures a target against your own players, in a position they actually play |
+| `TestTransferMarket` | the market is filtered, sorted, shortlisted and bid on by keypress |
 | `TestScreensRender` | every screen renders at every cursor position |
 | `TestKeyNavigation` | every screen's key bindings move the cursor without panicking |
 | `TestTouchlineControl` | a match is managed from kickoff to full time by keypress |

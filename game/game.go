@@ -9,7 +9,6 @@ package game
 import (
 	"fmt"
 	"math"
-	"sort"
 
 	"sportsim/assets"
 	"sportsim/engine/dev"
@@ -156,9 +155,9 @@ func (g *Game) AdvanceDay() DayReport {
 		}
 	}
 
-	// 3. Wages, paid weekly on Mondays.
+	// 3. Wages and running costs, paid weekly on Mondays.
 	if w.Date.Weekday() == 1 {
-		g.payWages()
+		g.payBills()
 	}
 
 	// 4. Training and development, applied monthly.
@@ -208,9 +207,11 @@ func (g *Game) playFixture(f *season.Fixture) *match.Result {
 	f.HomeGoals = uint8(res.HomeGoals)
 	f.AwayGoals = uint8(res.AwayGoals)
 	f.Attendance = att
+	f.Stats = res.Stats
 
 	for _, ev := range res.Events {
-		if ev.Type == match.EvGoal || ev.Type == match.EvPenaltyScored {
+		switch ev.Type {
+		case match.EvGoal, match.EvPenaltyScored:
 			f.Goals = append(f.Goals, season.Goal{
 				Minute:  ev.Minute,
 				Away:    ev.Team == 1,
@@ -218,7 +219,21 @@ func (g *Game) playFixture(f *season.Fixture) *match.Result {
 				Scorer:  ev.Player,
 				Assist:  ev.Other,
 			})
+		case match.EvRed, match.EvSecondYellow:
+			f.Reds = append(f.Reds, season.Dismissal{
+				Minute: ev.Minute,
+				Away:   ev.Team == 1,
+				Player: ev.Player,
+				Second: ev.Type == match.EvSecondYellow,
+			})
 		}
+	}
+
+	// Only the managed club's ratings are kept: they are the only ones the match
+	// report shows, and keeping every division's would grow a save file by a
+	// squad's worth of lines for every fixture of the season.
+	if ours := humanSide(w, res); ours >= 0 {
+		f.Lines = ourLines(res, ours)
 	}
 
 	// Season tallies, form and morale.
@@ -345,8 +360,11 @@ func attendance(w *model.World, home, away *model.Club, r *rng.R) uint32 {
 	return uint32(float64(home.StadiumCap) * fill)
 }
 
-// payWages debits every club's weekly wage bill.
-func (g *Game) payWages() {
+// payBills debits every club's weekly outgoings: the wages, and the cost of
+// running the place. Both are charged together because a club meets them out of
+// the same money, and a manager who only ever saw the wage bill would not
+// understand where the rest of it went.
+func (g *Game) payBills() {
 	w := g.World
 	bill := make(map[uint16]int64, len(w.Clubs))
 	for i := range w.Players {
@@ -357,8 +375,11 @@ func (g *Game) payWages() {
 	}
 	for i := range w.Clubs {
 		c := &w.Clubs[i]
-		c.Balance -= bill[c.ID]
-		if c.IsHuman && c.Balance < 0 {
+		wasSolvent := c.Balance >= 0
+		c.Balance -= bill[c.ID] + season.RunningCosts(w, c)
+		// Only on the way down: repeating it every Monday of an overdrawn season
+		// would bury every other message in the inbox.
+		if c.IsHuman && wasSolvent && c.Balance < 0 {
 			g.post("board", fmt.Sprintf("The club is in the red: %s. The board is concerned.",
 				transfer.Money(c.Balance)))
 		}
@@ -458,6 +479,7 @@ type SquadRow struct {
 	Fitness   int
 	Morale    int
 	Form      int
+	Positions string // every natural position, as "CAM/CM"
 	Nation    string
 	Value     int64
 	Wage      int64
@@ -498,6 +520,7 @@ func (g *Game) SquadOf(clubID uint16) []SquadRow {
 			PlayerID:  p.ID,
 			Name:      p.Name,
 			Position:  p.Primary().String(),
+			Positions: PositionList(p),
 			Age:       w.Age(p),
 			Rating:    int(math.Round(p.CurrentAbility())),
 			Potential: int(p.Potential),
@@ -519,6 +542,34 @@ func (g *Game) SquadOf(clubID uint16) []SquadRow {
 	return out
 }
 
+// Finances is the managed club's money, weekly except where noted. It is a
+// query rather than four separate ones because a balance only means anything
+// beside what is going out against it.
+type Finances struct {
+	Balance        int64
+	TransferBudget int64
+	Wages          int64
+	WageBudget     int64
+	RunningCosts   int64
+	Revenue        int64 // per season: the gate plus the division's prize money
+}
+
+// Finances reports what the managed club earns and spends.
+func (g *Game) Finances() Finances {
+	c := g.Club()
+	if c == nil {
+		return Finances{}
+	}
+	return Finances{
+		Balance:        c.Balance,
+		TransferBudget: c.TransferBudget,
+		Wages:          g.World.WageBill(c.ID),
+		WageBudget:     c.WageBudget,
+		RunningCosts:   season.RunningCosts(g.World, c),
+		Revenue:        season.Revenue(g.World, c),
+	}
+}
+
 // Table returns the standings for a league.
 func (g *Game) Table(leagueID uint16) []season.Row {
 	return season.Table(g.World, g.Sched, leagueID)
@@ -527,91 +578,6 @@ func (g *Game) Table(leagueID uint16) []season.Row {
 // NextFixture returns the managed club's next match.
 func (g *Game) NextFixture() *season.Fixture {
 	return g.Sched.NextFor(g.World.HumanClubID)
-}
-
-// SearchPlayers finds transfer targets matching a name fragment and filters.
-type SearchFilter struct {
-	Name      string
-	MaxValue  int64
-	MinAge    int
-	MaxAge    int
-	Position  model.Pos
-	MinRating int
-}
-
-// Search returns players matching the filter, best first.
-func (g *Game) Search(f SearchFilter, limit int) []SquadRow {
-	w := g.World
-	out := make([]SquadRow, 0, limit*2)
-	for i := range w.Players {
-		p := &w.Players[i]
-		if p.Potential == 0 || p.ClubID == w.HumanClubID {
-			continue
-		}
-		age := w.Age(p)
-		if f.MinAge > 0 && age < f.MinAge {
-			continue
-		}
-		if f.MaxAge > 0 && age > f.MaxAge {
-			continue
-		}
-		if f.Position < model.NumPos && !p.PlaysPos(f.Position) {
-			continue
-		}
-		if f.MinRating > 0 && int(p.CurrentAbility()) < f.MinRating {
-			continue
-		}
-		if f.MaxValue > 0 && transfer.AskingPrice(w, p) > f.MaxValue {
-			continue
-		}
-		if f.Name != "" && !containsFold(p.Name, f.Name) && !containsFold(p.FullName, f.Name) {
-			continue
-		}
-		row := SquadRow{
-			PlayerID: p.ID, Name: p.Name, Position: p.Primary().String(), Age: age,
-			Rating: int(math.Round(p.CurrentAbility())), Potential: int(p.Potential),
-			Nation: w.NationName(p.NationID), Value: transfer.AskingPrice(w, p),
-			Wage: int64(p.WageEUR), Contract: int(p.ContractUntil),
-			Goals: int(p.Goals), Apps: int(p.Apps),
-			Status: w.ClubName(p.ClubID),
-		}
-		out = append(out, row)
-	}
-	sort.SliceStable(out, func(a, b int) bool { return out[a].Rating > out[b].Rating })
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out
-}
-
-func containsFold(hay, needle string) bool {
-	h, n := []rune(lower(hay)), []rune(lower(needle))
-	if len(n) == 0 || len(n) > len(h) {
-		return len(n) == 0
-	}
-	for i := 0; i+len(n) <= len(h); i++ {
-		ok := true
-		for j := range n {
-			if h[i+j] != n[j] {
-				ok = false
-				break
-			}
-		}
-		if ok {
-			return true
-		}
-	}
-	return false
-}
-
-func lower(s string) string {
-	r := []rune(s)
-	for i, c := range r {
-		if c >= 'A' && c <= 'Z' {
-			r[i] = c + 32
-		}
-	}
-	return string(r)
 }
 
 // ---------------------------------------------------------------- actions
@@ -748,7 +714,7 @@ func (g *Game) Sell(playerID uint32) (bool, string) {
 		return false, fmt.Sprintf("No club has come in for %s at %s.", p.Name, transfer.Money(ask))
 	}
 
-	wage := dev.WageFor(p, w.Age(p), best.Reputation)
+	wage := dev.WageAsk(p, w.Age(p), best.Reputation)
 	o := transfer.Offer{PlayerID: playerID, From: best.ID, Fee: ask, Wage: wage, Years: 3}
 	transfer.Complete(w, o)
 	msg := fmt.Sprintf("%s sold to %s for %s.", p.Name, best.Name, transfer.Money(ask))
@@ -764,7 +730,7 @@ func (g *Game) OfferContract(playerID uint32, wage uint32, years int) (bool, str
 		return false, "That player is not yours."
 	}
 	c := g.Club()
-	want := dev.WageFor(p, w.Age(p), c.Reputation)
+	want := dev.WageAsk(p, w.Age(p), c.Reputation)
 	if wage < want {
 		return false, fmt.Sprintf("%s is holding out for %s per week.", p.Name, transfer.Money(int64(want)))
 	}

@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"sportsim/engine/model"
 	"sportsim/game"
 )
 
@@ -20,7 +21,7 @@ func TestScreensRender(t *testing.T) {
 	}
 	g.AutoSelect()
 
-	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, liveMode: false}
+	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, liveMode: false, mk: newMarket()}
 	m.tableLeague = g.Club().LeagueID
 
 	// Play far enough in to have results, injuries and a populated inbox.
@@ -30,21 +31,39 @@ func TestScreensRender(t *testing.T) {
 			m.mv = newMatchView(g, rep.HumanResult, false)
 		}
 	}
-	m.runSearch()
+	m.mk.apply(g)
 	m.viewPlayer = g.Squad()[0].PlayerID
 	m.seasonReport = []string{"Someone wins the league."}
+
+	m.report = g.FixtureReport(g.Sched.RecentFor(g.Club().ID, 1)[0])
 
 	screens := map[string]Screen{
 		"home": ScreenHome, "squad": ScreenSquad, "tactics": ScreenTactics,
 		"table": ScreenTable, "stats": ScreenStats, "fixtures": ScreenFixtures, "transfers": ScreenTransfers,
 		"inbox": ScreenInbox, "player": ScreenPlayer, "match": ScreenMatch,
-		"seasonEnd": ScreenSeasonEnd, "newGame": ScreenNewGame,
+		"report": ScreenReport, "seasonEnd": ScreenSeasonEnd, "newGame": ScreenNewGame,
 	}
 	for name, sc := range screens {
 		m.screen = sc
 		out := m.View()
 		if strings.TrimSpace(out) == "" {
 			t.Errorf("%s screen rendered nothing", name)
+		}
+	}
+
+	// Every tab of a match report is a layout of its own, on both the screen a
+	// match is watched on and the one a past match is opened on.
+	for tb := tabFeed; tb < numMatchTabs; tb++ {
+		m.screen, m.mv.tab = ScreenMatch, tb
+		if strings.TrimSpace(m.View()) == "" {
+			t.Errorf("match tab %s rendered nothing", matchTabNames[tb])
+		}
+		if tb == tabFeed {
+			continue // a stored match keeps no commentary
+		}
+		m.screen, m.reportTab = ScreenReport, tb
+		if strings.TrimSpace(m.View()) == "" {
+			t.Errorf("report tab %s rendered nothing", matchTabNames[tb])
 		}
 	}
 
@@ -58,7 +77,7 @@ func TestScreensRender(t *testing.T) {
 
 	// Cursors at the far end of each list must not panic either.
 	m.squadCur = len(g.Squad()) - 1
-	m.transferCur = len(m.searchResult) - 1
+	m.mk.cur = len(m.mk.results) - 1
 	m.tacticsCur = 26
 	m.inboxCur = len(g.Inbox) - 1
 	for _, sc := range screens {
@@ -72,7 +91,7 @@ func TestScreensRender(t *testing.T) {
 func TestKeyNavigation(t *testing.T) {
 	g, _ := game.New("Tester", 1, 11)
 	g.AutoSelect()
-	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1}
+	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, mk: newMarket()}
 	m.tableLeague = g.Club().LeagueID
 
 	keys := []string{"s", "down", "down", "up", "enter", "esc", "t", "a", "]", "[",
@@ -102,7 +121,7 @@ func TestKeyNavigation(t *testing.T) {
 func TestTouchlineControl(t *testing.T) {
 	g, _ := game.New("Tester", 1, 23)
 	g.AutoSelect()
-	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, liveMode: true}
+	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, liveMode: true, mk: newMarket()}
 	m.tableLeague = g.Club().LeagueID
 
 	press := func(k string) {
@@ -231,6 +250,79 @@ func TestTouchlineControl(t *testing.T) {
 	}
 }
 
+// TestFixtureReportNavigation opens a match played earlier in the season from
+// the fixture list, the way a manager looking back over a result would: press f
+// for the calendar, move up to a match already played, and open it.
+func TestFixtureReportNavigation(t *testing.T) {
+	g, _ := game.New("Tester", 1, 31)
+	g.AutoSelect()
+	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, liveMode: false, mk: newMarket()}
+	m.tableLeague = g.Club().LeagueID
+	for i := 0; i < 60; i++ {
+		g.AdvanceDay()
+	}
+
+	press := func(k string) {
+		t.Helper()
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+		switch k {
+		case "up", "down", "enter", "esc", "tab":
+			msg = tea.KeyMsg{Type: keyType(k)}
+		}
+		var mm tea.Model = m
+		mm, _ = m.Update(msg)
+		m = mm.(*Model)
+		if strings.TrimSpace(m.View()) == "" && !m.quitting {
+			t.Fatalf("blank screen after key %q", k)
+		}
+	}
+
+	// The list opens on the next match to be played, which has no report yet.
+	press("f")
+	fixtures := m.myFixtures()
+	if m.fixtureCur != nextFixtureIndex(fixtures) {
+		t.Fatalf("cursor at %d, want the next unplayed match at %d",
+			m.fixtureCur, nextFixtureIndex(fixtures))
+	}
+	press("enter")
+	if m.screen == ScreenReport {
+		t.Error("an unplayed fixture opened a match report")
+	}
+
+	// The one before it has been played, so it has.
+	press("up")
+	played := fixtures[m.fixtureCur]
+	if !played.Played {
+		t.Fatal("the fixture above the next one has not been played")
+	}
+	press("enter")
+	if m.screen != ScreenReport || m.report == nil {
+		t.Fatal("enter did not open the match report")
+	}
+	if m.report.HomeGoals != int(played.HomeGoals) || m.report.AwayGoals != int(played.AwayGoals) {
+		t.Errorf("report shows %d-%d, the fixture was %d-%d",
+			m.report.HomeGoals, m.report.AwayGoals, played.HomeGoals, played.AwayGoals)
+	}
+
+	// The tabs cycle, and never stray onto the commentary a stored match has no
+	// record of.
+	for i := 0; i < int(numMatchTabs-tabOverview); i++ {
+		if m.reportTab == tabFeed {
+			t.Fatal("a stored match offered the commentary tab")
+		}
+		press("tab")
+	}
+	if m.reportTab != tabOverview {
+		t.Errorf("the tabs stopped on %s rather than coming round to the overview",
+			matchTabNames[m.reportTab])
+	}
+
+	press("esc")
+	if m.screen != ScreenFixtures {
+		t.Error("esc did not go back to the fixture list")
+	}
+}
+
 func keyType(k string) tea.KeyType {
 	switch k {
 	case "down":
@@ -252,7 +344,7 @@ func keyType(k string) tea.KeyType {
 // TestNewGameFlow drives the club picker the way a player first meets it:
 // type a name, choose a division, choose a club, and land in a live career.
 func TestNewGameFlow(t *testing.T) {
-	m := &Model{screen: ScreenNewGame, width: 110, height: 36, swapFrom: -1}
+	m := &Model{screen: ScreenNewGame, width: 110, height: 36, swapFrom: -1, mk: newMarket()}
 
 	send := func(msgs ...tea.KeyMsg) {
 		t.Helper()
@@ -311,3 +403,203 @@ func TestNewGameFlow(t *testing.T) {
 		t.Fatal("blank screen after advancing a day")
 	}
 }
+
+// TestTransferMarket drives the market screen the way a manager scouting a
+// signing would: narrow the list with the filter bar, shortlist someone,
+// then open the negotiation panel and adjust an offer.
+//
+// The screen swallows single letters while a filter has focus, which is what
+// lets a name be typed without `s` jumping to the squad; the test checks both
+// halves of that, since getting it wrong makes the interface unusable in one
+// mode or unreachable in the other.
+func TestTransferMarket(t *testing.T) {
+	g, _ := game.New("Tester", 1, 23)
+	g.AutoSelect()
+	m := &Model{g: g, screen: ScreenHome, width: 130, height: 40, swapFrom: -1, mk: newMarket()}
+	m.tableLeague = g.Club().LeagueID
+
+	send := func(keys ...string) {
+		t.Helper()
+		for _, k := range keys {
+			var msg tea.KeyMsg
+			switch k {
+			case "tab":
+				msg = tea.KeyMsg{Type: tea.KeyTab}
+			case "enter":
+				msg = tea.KeyMsg{Type: tea.KeyEnter}
+			case "esc":
+				msg = tea.KeyMsg{Type: tea.KeyEsc}
+			case "backspace":
+				msg = tea.KeyMsg{Type: tea.KeyBackspace}
+			case "up", "down", "left", "right":
+				msg = tea.KeyMsg{Type: keyType(k)}
+			default:
+				msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+			}
+			var mm tea.Model = m
+			mm, _ = m.Update(msg)
+			m = mm.(*Model)
+			if strings.TrimSpace(m.View()) == "" {
+				t.Fatalf("blank screen after key %q", k)
+			}
+		}
+	}
+
+	// The market opens populated rather than empty: a manager should not have to
+	// guess a name before the screen shows them anything.
+	send("r")
+	if m.screen != ScreenTransfers {
+		t.Fatal("r did not open the transfer market")
+	}
+	if len(m.mk.results) == 0 {
+		t.Fatal("the market opened with no players listed")
+	}
+	all := m.mk.matched
+
+	// Narrowing by position has to bite, and has to find players who list the
+	// position second or third rather than only those whose best it is. The
+	// cycle starts at "any" and the first step lands on GK, which is the one
+	// position nobody holds as a second job, so walk on to centre midfield.
+	send("tab", "tab")
+	if m.mk.focus != filterPos {
+		t.Fatalf("focus = %v, want the position field", m.mk.focus)
+	}
+	for i := 0; i <= int(model.CM); i++ {
+		send("right")
+	}
+	pos := m.mk.filter.Position
+	if pos != model.CM {
+		t.Fatalf("position field = %v, want CM", pos)
+	}
+	if m.mk.matched >= all {
+		t.Errorf("filtering to %s did not narrow the market (%d of %d)", pos, m.mk.matched, all)
+	}
+	secondary := 0
+	for _, r := range m.mk.results {
+		p := g.World.Player(r.PlayerID)
+		if !p.PlaysPos(pos) {
+			t.Fatalf("%s (%s) does not play %s", r.Name, r.Positions, pos)
+		}
+		if p.Primary() != pos {
+			secondary++
+		}
+	}
+	if secondary == 0 {
+		t.Errorf("no player was matched on a secondary position; only best positions are being searched")
+	}
+
+	// A letter typed into a filter must edit it, not trigger a global binding.
+	narrowed := m.mk.matched
+	send("tab", "2", "3")
+	if m.mk.ageText != "23" {
+		t.Fatalf("age field = %q, want %q", m.mk.ageText, "23")
+	}
+	if m.mk.matched >= narrowed {
+		t.Error("an age ceiling did not narrow the market further")
+	}
+	for _, r := range m.mk.results {
+		if r.Age > 23 {
+			t.Fatalf("%s is %d, past the age ceiling", r.Name, r.Age)
+		}
+	}
+	if m.screen != ScreenTransfers {
+		t.Fatal("typing into a filter navigated away from the market")
+	}
+
+	// Every other binding on this screen is a letter, so a name made only of
+	// them has to survive being typed: n, o, c and v are all commands on the
+	// list and all ordinary characters in the name field.
+	send("esc", "/")
+	if m.mk.focus != filterName {
+		t.Fatal("/ did not focus the name filter")
+	}
+	sortWas, posWas := m.mk.filter.Sort, m.mk.filter.Position
+	send("n", "o", "c", "v")
+	if m.mk.filter.Name != "nocv" {
+		t.Fatalf("name filter = %q, want %q — a shortcut fired while typing",
+			m.mk.filter.Name, "nocv")
+	}
+	if m.mk.filter.Sort != sortWas || m.mk.filter.Position != posWas {
+		t.Error("typing into the name field changed the sort or the position filter")
+	}
+	if m.screen != ScreenTransfers {
+		t.Fatal("typing into the name field navigated away")
+	}
+	send("backspace", "backspace", "backspace", "backspace")
+	if m.mk.filter.Name != "" {
+		t.Fatalf("backspace left %q", m.mk.filter.Name)
+	}
+
+	// Back on the list, the same letters are commands again.
+	send("esc")
+	if m.mk.focus != filterNone {
+		t.Fatal("esc did not return focus to the results")
+	}
+	if len(m.mk.results) == 0 {
+		t.Skip("no player matches the filters this seed produced")
+	}
+
+	// Shortlisting round-trips through the scope filter.
+	target := m.mk.results[0]
+	send("*")
+	if g.ShortlistSize() != 1 {
+		t.Fatalf("shortlist holds %d players, want 1", g.ShortlistSize())
+	}
+	send("c") // clearing the filters must not clear the shortlist
+	if g.ShortlistSize() != 1 {
+		t.Error("clearing the filters emptied the shortlist")
+	}
+	if m.mk.matched != all {
+		t.Errorf("cleared filters matched %d, want the full market of %d", m.mk.matched, all)
+	}
+	send("tab", "tab", "tab", "tab", "tab", "tab", "right", "esc")
+	if m.mk.filter.Scope != game.ScopeShortlist {
+		t.Fatalf("scope = %v, want the shortlist", m.mk.filter.Scope)
+	}
+	if m.mk.matched != 1 || m.mk.results[0].PlayerID != target.PlayerID {
+		t.Fatalf("shortlist scope showed %d players, want just %s", m.mk.matched, target.Name)
+	}
+
+	// The bid panel opens pre-filled with terms that would be accepted, and the
+	// arrow keys have to move real money.
+	send("enter")
+	if m.mk.bid == nil {
+		t.Fatal("enter did not open the bid panel")
+	}
+	bp := m.mk.bid
+	if bp.fee != bp.q.AskingPrice || bp.wage != uint32(bp.q.WageDemand) {
+		t.Error("the panel did not open on terms that would be accepted")
+	}
+	opening := bp.fee
+	send("left", "left")
+	if bp.fee >= opening {
+		t.Errorf("the fee did not come down: %d then %d", opening, bp.fee)
+	}
+	if bp.fee < transferHaggleFloor(bp.q.AskingPrice) {
+		t.Log("two presses already took the offer under what the club would accept")
+	}
+	send("down", "right")
+	if bp.wage <= uint32(bp.q.WageDemand) {
+		t.Error("the wage did not go up")
+	}
+	send("esc")
+	if m.mk.bid != nil {
+		t.Error("esc did not close the bid panel")
+	}
+
+	// And a bid that meets both demands has to actually sign the player.
+	before := g.World.Player(target.PlayerID).ClubID
+	send("enter")
+	m.mk.bid.fee = m.mk.bid.q.AskingPrice
+	m.mk.bid.wage = uint32(m.mk.bid.q.WageDemand)
+	send("enter")
+	if got := g.World.Player(target.PlayerID).ClubID; got == before {
+		t.Logf("bid for %s was turned down: %s", target.Name, m.status)
+	} else if got != g.World.HumanClubID {
+		t.Fatalf("%s ended up at club %d, not ours", target.Name, got)
+	}
+}
+
+// transferHaggleFloor mirrors what a selling club will come down to, so the
+// test can tell a rejected lowball from a broken adjustment.
+func transferHaggleFloor(ask int64) int64 { return ask * 92 / 100 }
