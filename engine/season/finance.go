@@ -71,6 +71,96 @@ const (
 	transferBudgetShare = 0.45
 )
 
+// What a continental campaign is worth, following the shape of UEFA's own
+// distribution: a fee for turning up at all, a cheque per point won in the
+// group, and a larger one for every knockout round reached.
+//
+// The Champions League is worth an order of magnitude more than the Conference
+// League, and that gap is doing real work in the game: it is why finishing
+// fourth rather than seventh is worth spending a transfer budget on, and why a
+// mid-table club in a strong league can out-earn the champion of a weak one.
+// The figures are the real competitions' scaled to this world's smaller field.
+var europeanPurse = [model.NumCompetitions]struct {
+	Participation int64
+	PerPoint      int64
+	Round16       int64
+	Quarter       int64
+	Semi          int64
+	Final         int64
+	Winner        int64
+}{
+	model.ChampionsLeague:  {18_000_000, 1_000_000, 11_000_000, 12_500_000, 15_000_000, 18_500_000, 6_000_000},
+	model.EuropaLeague:     {4_200_000, 400_000, 0, 1_800_000, 2_800_000, 4_600_000, 4_000_000},
+	model.ConferenceLeague: {3_000_000, 200_000, 0, 1_300_000, 2_000_000, 3_000_000, 2_000_000},
+}
+
+// EuroParticipation is what a club banks simply for reaching the group stage.
+func EuroParticipation(c model.Competition) int64 {
+	if c >= model.NumCompetitions {
+		return 0
+	}
+	return europeanPurse[c].Participation
+}
+
+// EuroPointBonus is what one point in the group stage is worth.
+func EuroPointBonus(c model.Competition) int64 {
+	if c >= model.NumCompetitions {
+		return 0
+	}
+	return europeanPurse[c].PerPoint
+}
+
+// EuroRoundBonus is what reaching a knockout round pays, to both clubs in every
+// tie of it.
+func EuroRoundBonus(c model.Competition, st Stage) int64 {
+	if c >= model.NumCompetitions {
+		return 0
+	}
+	p := europeanPurse[c]
+	switch st {
+	case StageRound16:
+		return p.Round16
+	case StageQuarter:
+		return p.Quarter
+	case StageSemi:
+		return p.Semi
+	case StageFinal:
+		return p.Final
+	}
+	return 0
+}
+
+// EuroWinnerBonus is what lifting the trophy is worth, on top of reaching the
+// final.
+func EuroWinnerBonus(c model.Competition) int64 {
+	if c >= model.NumCompetitions {
+		return 0
+	}
+	return europeanPurse[c].Winner
+}
+
+// ExpectedEuro is the continental money a club can plan a season around before
+// the draw is even made: the participation fee, a middling group campaign, and
+// an even chance of coming through it.
+//
+// It has to be part of Revenue rather than a windfall on top of it, because
+// revenue is what sizes both running costs and the transfer budget. A club that
+// banked Champions League money without it ever reaching Revenue would spend
+// none of it and simply grow richer every year — the same drift that made every
+// club able to buy anybody when budgets came from the balance.
+func ExpectedEuro(c *model.Club) int64 {
+	if c == nil || c.Competition == model.NoComp {
+		return 0
+	}
+	p := europeanPurse[c.Competition]
+	const typicalGroupPoints = 8
+	first := p.Round16
+	if first == 0 {
+		first = p.Quarter
+	}
+	return p.Participation + typicalGroupPoints*p.PerPoint + first/2
+}
+
 // SeasonGate is the money a club can expect to take on the gate across a
 // campaign. The receipts themselves are banked match by match as they are taken,
 // against the crowd that actually turned up; this is the figure a club budgets
@@ -140,12 +230,13 @@ func ExpectedPrize(w *model.World, c *model.Club) int64 {
 }
 
 // Revenue is what a club expects to earn across a season: the gate, the
-// television money its division pays, and its commercial income.
+// television money its division pays, its commercial income, and whatever
+// European football it has qualified for.
 func Revenue(w *model.World, c *model.Club) int64 {
 	if c == nil {
 		return 0
 	}
-	return SeasonGate(c) + ExpectedPrize(w, c) + Commercial(c.Reputation)
+	return SeasonGate(c) + ExpectedPrize(w, c) + Commercial(c.Reputation) + ExpectedEuro(c)
 }
 
 // RunningCosts is what a club spends in a week on everything that is not a

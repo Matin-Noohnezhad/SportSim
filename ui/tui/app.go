@@ -29,6 +29,7 @@ const (
 	ScreenTactics
 	ScreenTable
 	ScreenStats
+	ScreenEurope
 	ScreenFixtures
 	ScreenTransfers
 	ScreenInbox
@@ -69,6 +70,11 @@ type Model struct {
 	fixtureCur  int
 	inboxCur    int
 	viewPlayer  uint32
+
+	// The European screen: which competition is open, and whether its groups or
+	// its bracket is showing.
+	euroComp    int
+	euroBracket bool
 
 	// The transfer market screen owns its own filters, results and bid panel.
 	mk *market
@@ -229,6 +235,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.tableLeague = m.g.Club().LeagueID
 		}
 		return m, nil
+	case "e":
+		m.openEurope()
+		return m, nil
 	case "f":
 		// Open the list on the match that matters now, the next one to be played.
 		m.screen = ScreenFixtures
@@ -266,6 +275,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyTactics(key)
 	case ScreenTable, ScreenStats:
 		return m.keyTable(key)
+	case ScreenEurope:
+		return m.keyEurope(key)
 	case ScreenFixtures:
 		return m.keyFixtures(key)
 	case ScreenReport:

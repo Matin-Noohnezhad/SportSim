@@ -42,6 +42,10 @@ type matchView struct {
 	paused bool
 	done   bool
 
+	// comp names the competition, taken once at kickoff rather than rebuilt with
+	// the report every frame.
+	comp string
+
 	// tab is which page of the match is on screen. The statistics pages do not
 	// stop the clock: they are a way of watching the match, not a decision to
 	// be made, and the feed carries on collecting behind them.
@@ -76,6 +80,7 @@ func newNames(g *game.Game, res *match.Result) match.Names {
 // at once.
 func newMatchView(g *game.Game, res *match.Result, live bool) *matchView {
 	mv := &matchView{g: g, res: res, speed: 220 * time.Millisecond, names: newNames(g, res)}
+	mv.comp = g.ResultReport(res).Competition
 	if !live {
 		mv.finish()
 	}
@@ -86,7 +91,9 @@ func newMatchView(g *game.Game, res *match.Result, live bool) *matchView {
 // kickoff has been simulated yet.
 func newLiveView(g *game.Game, lm *game.LiveMatch) *matchView {
 	res := lm.Result()
-	return &matchView{g: g, live: lm, res: res, speed: 220 * time.Millisecond, names: newNames(g, res)}
+	mv := &matchView{g: g, live: lm, res: res, speed: 220 * time.Millisecond, names: newNames(g, res)}
+	mv.comp = g.ResultReport(res).Competition
+	return mv
 }
 
 // advance moves the match on by a minute: simulating it when the manager is in
@@ -214,7 +221,7 @@ func (m *Model) viewMatch() string {
 	b.WriteString(stTitle.Render(fmt.Sprintf("  %s  %d - %d  %s", home, h, a, away)))
 	b.WriteString("   " + stMuted.Render(clock))
 	b.WriteString("\n")
-	b.WriteString(stMuted.Render(fmt.Sprintf("  Attendance %s\n", comma(int64(mv.res.Attendance)))))
+	b.WriteString(stMuted.Render(fmt.Sprintf("  %s   Attendance %s\n", mv.comp, comma(int64(mv.res.Attendance)))))
 	if mv.managing() {
 		b.WriteString(stMuted.Render(fmt.Sprintf("  %d substitutions left   [s] subs  [t] shape  [space] pause\n",
 			mv.live.SubsLeft())))

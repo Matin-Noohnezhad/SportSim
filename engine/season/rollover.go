@@ -12,21 +12,31 @@ import (
 // Outcome summarises what a completed season did to the game world, so the UI
 // can present an end-of-season report.
 type Outcome struct {
-	Champions  map[uint16]uint16 // league ID -> winning club
-	Promoted   []uint16
-	Relegated  []uint16
-	Retired    []string
-	YouthCount int
-	Headlines  []string
+	Champions      map[uint16]uint16              // league ID -> winning club
+	EuroChampions  map[model.Competition]uint16   // competition -> winning club
+	EuroQualifiers map[model.Competition][]uint16 // who goes into Europe next season
+	Promoted       []uint16
+	Relegated      []uint16
+	Retired        []string
+	YouthCount     int
+	Headlines      []string
 }
 
 // Rollover closes a season: it pays out prize money, moves clubs between
 // divisions, ages and develops every player, expires contracts, brings youth
 // through and resets the season's tallies.
 func Rollover(w *model.World, s *Schedule, r *rng.R) *Outcome {
-	out := &Outcome{Champions: map[uint16]uint16{}}
+	out := &Outcome{
+		Champions:      map[uint16]uint16{},
+		EuroChampions:  map[model.Competition]uint16{},
+		EuroQualifiers: map[model.Competition][]uint16{},
+	}
 
 	payPrizeMoney(w, s, out)
+	// Europe is settled off the tables as they finished, so it has to be read
+	// before promotion and relegation start moving clubs between divisions.
+	recordEuropeanSeason(w, s, out)
+	qualifyForEurope(w, s, out)
 	applyPromotionRelegation(w, s, out)
 	expireContracts(w, r, out)
 	retireAndAge(w, r, out)
@@ -62,6 +72,42 @@ func payPrizeMoney(w *model.World, s *Schedule, out *Outcome) {
 			// commercial income weekly in game.settleWeek; adding either again
 			// here would pay every club twice for the same season.
 			c.Balance += int64(float64(l.PrizeMoney) * PrizeShare(w, c, i, n))
+		}
+	}
+}
+
+// recordEuropeanSeason writes the continental winners into the season review.
+// The competitions themselves are already over: a final is a fixture like any
+// other and EuroAdvance settled it on the day it was played.
+func recordEuropeanSeason(w *model.World, s *Schedule, out *Outcome) {
+	if s.Euro == nil {
+		return
+	}
+	for i := range s.Euro.Comps {
+		cs := &s.Euro.Comps[i]
+		if cs.Winner == 0 {
+			continue
+		}
+		out.EuroChampions[cs.Comp] = cs.Winner
+		out.Headlines = append(out.Headlines,
+			fmt.Sprintf("%s win the %s.", w.ClubName(cs.Winner), cs.Comp))
+	}
+}
+
+// qualifyForEurope settles who plays continental football next season and says
+// so, since a European place is the thing half the table is actually playing
+// for and it is invisible in a final league table on its own.
+func qualifyForEurope(w *model.World, s *Schedule, out *Outcome) {
+	AssignEuropeanPlaces(w, s)
+	for i := range w.Clubs {
+		c := &w.Clubs[i]
+		if c.Competition == model.NoComp {
+			continue
+		}
+		out.EuroQualifiers[c.Competition] = append(out.EuroQualifiers[c.Competition], c.ID)
+		if c.IsHuman {
+			out.Headlines = append(out.Headlines,
+				fmt.Sprintf("%s have qualified for the %s.", c.Name, c.Competition))
 		}
 	}
 }

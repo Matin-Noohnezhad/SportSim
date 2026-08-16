@@ -51,6 +51,11 @@ func TestMatchReport(t *testing.T) {
 	if stored.Stats != live.Stats {
 		t.Errorf("box score %+v, watched %+v", stored.Stats, live.Stats)
 	}
+	// Which competition a match was in is filled in by both builders, so a
+	// European night opened from the fixture list still says what it was.
+	if stored.Competition != live.Competition || stored.Competition == "" {
+		t.Errorf("competition %q, watched %q", stored.Competition, live.Competition)
+	}
 	if len(stored.Players) != len(live.Players) {
 		t.Fatalf("%d player ratings kept, %d at full time", len(stored.Players), len(live.Players))
 	}

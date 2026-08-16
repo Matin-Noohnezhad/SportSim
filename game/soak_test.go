@@ -204,8 +204,18 @@ func TestSeasonCalibration(t *testing.T) {
 	}
 
 	var goals, matches, homeWins, draws, penalties, assisted int
+	var euroMatches, euroGoals int
 	for g.Sched.Remaining() > 0 {
 		for _, f := range g.AdvanceDay().Results {
+			// The calibration target is league football, which is what the
+			// published rates are drawn from. European nights are played by the
+			// same engine but between clubs of a different spread, so counting
+			// them in would move the figures for a reason that is not tuning.
+			if f.Continental() {
+				euroMatches++
+				euroGoals += int(f.HomeGoals) + int(f.AwayGoals)
+				continue
+			}
 			matches++
 			goals += int(f.HomeGoals) + int(f.AwayGoals)
 			for _, gl := range f.Goals {
@@ -230,6 +240,10 @@ func TestSeasonCalibration(t *testing.T) {
 	t.Logf("  %.2f penalties per match (%.1f%% of goals), %.1f%% of goals assisted",
 		float64(penalties)/n, 100*float64(penalties)/float64(goals),
 		100*float64(assisted)/float64(goals))
+	if euroMatches > 0 {
+		t.Logf("  %d European ties alongside them, %.2f goals each",
+			euroMatches, float64(euroGoals)/float64(euroMatches))
+	}
 
 	// A penalty is worth nearly ten open chances, so getting their frequency
 	// wrong is not a rounding error: it moves both the scoring rate and who

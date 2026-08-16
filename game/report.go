@@ -77,6 +77,9 @@ type MatchReport struct {
 	AwayGoals  int
 	Attendance uint32
 
+	// Competition names what the match was: the division, or the European round.
+	Competition string
+
 	// Ours is which side of the match the managed club is, 0 at home and 1
 	// away, or -1 when they were not involved.
 	Ours int
@@ -95,14 +98,15 @@ func (g *Game) ResultReport(res *match.Result) *MatchReport {
 	}
 	w := g.World
 	rep := &MatchReport{
-		Date:       w.Date,
-		Home:       w.ClubName(res.HomeClub),
-		Away:       w.ClubName(res.AwayClub),
-		HomeGoals:  res.HomeGoals,
-		AwayGoals:  res.AwayGoals,
-		Attendance: res.Attendance,
-		Ours:       humanSide(w, res),
-		Stats:      res.Stats,
+		Date:        w.Date,
+		Home:        w.ClubName(res.HomeClub),
+		Away:        w.ClubName(res.AwayClub),
+		HomeGoals:   res.HomeGoals,
+		AwayGoals:   res.AwayGoals,
+		Attendance:  res.Attendance,
+		Competition: g.CompetitionLabel(g.fixtureFor(res)),
+		Ours:        humanSide(w, res),
+		Stats:       res.Stats,
 	}
 
 	for _, ev := range res.Events {
@@ -147,15 +151,16 @@ func (g *Game) FixtureReport(f *season.Fixture) *MatchReport {
 	}
 	w := g.World
 	rep := &MatchReport{
-		Date:       f.Date,
-		Home:       w.ClubName(f.Home),
-		Away:       w.ClubName(f.Away),
-		HomeGoals:  int(f.HomeGoals),
-		AwayGoals:  int(f.AwayGoals),
-		Attendance: f.Attendance,
-		Ours:       -1,
-		Stats:      f.Stats,
-		Players:    g.describeLines(f.Lines),
+		Date:        f.Date,
+		Home:        w.ClubName(f.Home),
+		Away:        w.ClubName(f.Away),
+		HomeGoals:   int(f.HomeGoals),
+		AwayGoals:   int(f.AwayGoals),
+		Attendance:  f.Attendance,
+		Competition: g.CompetitionLabel(f),
+		Ours:        -1,
+		Stats:       f.Stats,
+		Players:     g.describeLines(f.Lines),
 	}
 	switch w.HumanClubID {
 	case f.Home:
@@ -257,6 +262,31 @@ func (g *Game) playerName(id uint32) string {
 		return p.Name
 	}
 	return ""
+}
+
+// fixtureFor finds the schedule entry a result belongs to, which is where the
+// competition it was played in is recorded.
+//
+// A match being watched from the touchline is the one in hand and is not marked
+// played yet, so it is looked for first. Otherwise the result has just come off
+// the pitch, and the latest played match between those two clubs at that ground
+// is it — the same two clubs can meet twice at the same ground in a season only
+// by meeting in Europe as well as in their division.
+func (g *Game) fixtureFor(res *match.Result) *season.Fixture {
+	if g.live != nil && g.live.f.Home == res.HomeClub && g.live.f.Away == res.AwayClub {
+		return g.live.f
+	}
+	var best *season.Fixture
+	for i := range g.Sched.Fixtures {
+		f := &g.Sched.Fixtures[i]
+		if !f.Played || f.Home != res.HomeClub || f.Away != res.AwayClub {
+			continue
+		}
+		if best == nil || f.Date > best.Date {
+			best = f
+		}
+	}
+	return best
 }
 
 // humanSide reports which side of a match the managed club is, 0 at home and 1

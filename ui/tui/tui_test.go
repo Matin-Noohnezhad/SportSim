@@ -39,7 +39,8 @@ func TestScreensRender(t *testing.T) {
 
 	screens := map[string]Screen{
 		"home": ScreenHome, "squad": ScreenSquad, "tactics": ScreenTactics,
-		"table": ScreenTable, "stats": ScreenStats, "fixtures": ScreenFixtures, "transfers": ScreenTransfers,
+		"table": ScreenTable, "stats": ScreenStats, "europe": ScreenEurope,
+		"fixtures": ScreenFixtures, "transfers": ScreenTransfers,
 		"inbox": ScreenInbox, "player": ScreenPlayer, "match": ScreenMatch,
 		"report": ScreenReport, "seasonEnd": ScreenSeasonEnd, "newGame": ScreenNewGame,
 	}
@@ -96,7 +97,8 @@ func TestKeyNavigation(t *testing.T) {
 
 	keys := []string{"s", "down", "down", "up", "enter", "esc", "t", "a", "]", "[",
 		"down", "enter", "down", "enter", "right", "left", "l", "right", "left",
-		"tab", "right", "left", "tab", "f", "r", "/", "esc", "i", "h", "L", " "}
+		"tab", "right", "left", "tab", "e", "right", "right", "right", "left",
+		"tab", "tab", "f", "r", "/", "esc", "i", "h", "L", " "}
 	for _, k := range keys {
 		var msg tea.KeyMsg
 		switch k {
