@@ -25,7 +25,7 @@ go vet ./...
 Running a single test — the suite is small and every test is named, so target by name:
 
 ```sh
-go test ./game -run TestSeasonCalibration -v   # slowest (~13s): plays a full 4,676-match season
+go test ./game -run TestSeasonCalibration -v   # slowest (~13s): plays a full 4,676-match league season
 go test ./engine/match -run TestDeterminism -v
 go test ./ui/tui -run TestScreensRender -v
 go test ./... -count=1                         # defeat the cache after touching tuning constants
@@ -61,9 +61,13 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   `game/transfers.go` owns the market: `Search` over a `SearchFilter`, the `Target` rows it
   returns, the shortlist, and `Quote`/`Renewal`, which price a signing without committing to
   it — see invariant 13.
-  `AdvanceDay()` is the heartbeat: it plays the day's fixtures, applies recovery, pays the week's
-  bills on Mondays, trains on the 1st of the month, runs the AI market, then moves the clock. **A second
-  frontend (HTTP, mobile) is a new package beside `ui/tui`, not a rewrite — so nothing that belongs
+  `game/europe.go` flattens the continental competitions into the plain structs a screen
+  draws — `EuroView`, `EuroGroup`, `EuroRound`, `EuroTie` — including the aggregate score of
+  a tie, which is worked out from its legs here rather than in a view. See invariant 16.
+  `AdvanceDay()` is the heartbeat: it plays the day's fixtures, advances the European
+  competitions, applies recovery, settles the week's money on Mondays, trains on the 1st of
+  the month, runs the AI market, then moves the clock.
+  **A second frontend (HTTP, mobile) is a new package beside `ui/tui`, not a rewrite — so nothing that belongs
   to the simulation may leak into a UI package, and nothing terminal-shaped may leak into `game`.**
   `KickOff()` (in `game/live.go`) is the one place that breaks the once-a-day rhythm: it hands back a
   `LiveMatch` for the managed club's fixture and *holds the rest of the day back* until `AdvanceDay`
@@ -81,21 +85,30 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   **`engine/season`** owns calendar, tables and rollover, and is the one engine package that
   imports another (`engine/match`, for the box score and player lines a played `Fixture` keeps, so
   that a match report has a single definition); `finance.go` holds the club economy — `SeasonGate`,
-  `Revenue`, `RunningCosts` and the constants that balance against prize money, see invariant 14;
+  `Commercial`, `PrizeShare`, `Revenue`, `RunningCosts`, `TransferBudget` and the European purse,
+  see invariant 14; `europe.go` owns the three continental competitions end to end —
+  `AssignEuropeanPlaces`, the group and knockout draws, the European calendar and `EuroAdvance`,
+  see invariant 16;
   **`engine/dev`** owns growth/decline/fitness/morale/valuation; **`engine/transfer`** owns pricing
   (`AskingPrice`, and `PriceList` for pricing a whole market at once), negotiation (`WageDemand`,
   `Consider`, `HaggleFloor`) and the AI market (`Need`, `RunAI`); **`engine/rng`** is the single
   random source.
 - **`ui/tui`** is Bubble Tea: `Model` in `app.go` (state + key handling), rendering in `view.go`,
   the match feed and touchline panels in `match.go`, the tabbed match report in `report.go`, the
-  transfer market in `transfers.go`, Lip Gloss styles in `styles.go`. `ScreenMatch`
+  transfer market in `transfers.go`, the continental competitions in `europe.go`, Lip Gloss
+  styles in `styles.go`. `ScreenMatch`
   intercepts keys *before* the global bindings, because from the touchline `s` and `t` are the
   substitution and shape panels rather than the squad and tactics screens. `ScreenTransfers`
   intercepts them the same way, but only while a filter field or the bid panel has focus: a
   name being typed into the market must not be read as a request to change screen, and the
   moment focus returns to the results the single letters are global bindings again. That is
   what `market.focus == filterNone` means, and why every filter is edited through it rather
-  than through a modal search prompt. `ScreenTable` and
+  than through a modal search prompt. `confirmQuit` is a third interceptor and sits ahead of
+  the global bindings for the same reason: while the prompt is up, a letter must not answer the
+  question by navigating away from it. It opens with `quitYes` false — the irreversible answer
+  has to be moved onto, never reached by pressing `q` twice — and only `ctrl+c` still leaves
+  without asking, because arguing with the terminal's own way out would be worse than losing a
+  day's play. `TestQuitIsConfirmed` drives the whole path. `ScreenTable` and
   `ScreenStats` are two views of one division and share `keyTable`, with `tab` between them; the
   charts sit two abreast on a wide terminal and stack on a narrow one, which is why `statRows` is
   told how many rows of them there will be.
@@ -146,6 +159,12 @@ few simulated seasons.
 7. **The league list is data, not code.** `wanted` in `cmd/importer/main.go` is the only place
    divisions are enumerated; tiers, promotion and relegation counts flow from there through the pack
    into `model.League`. Adding a division is one line plus a re-import.
+
+   The *continental* list is not in the pack — it is not in the dataset — but it is still data:
+   `competitions` in `engine/model/europe.go` is the only place the three tournaments are
+   enumerated, and their size, group count and per-league cap all flow from there. Nothing else
+   hard-codes "32" or "eight groups", and `season.AssignEuropeanPlaces` shares the places out from
+   the reputations it finds rather than from a table of countries.
 8. **No club plays three league games running at the same ground.** `roundRobin` in
    `engine/season/season.go` uses the canonical venue assignment — home or away follows the parity of
    a club's distance from the circle's stationary pivot, and that distance falls by one every round —
@@ -174,6 +193,14 @@ few simulated seasons.
     cleared in `season.resetSeasonStats`**, or a striker carries ninety goals into next season
     (`TestStatsResetEachSeason`). Adding a field to the tallies also means bumping
     `store.formatVersion` — see invariant 5.
+
+    A tally covers **every competition the player appeared in**, European nights included, because
+    there is one set of counters and one `dev.AfterMatch` that folds a match into them. That is why
+    `TestSeasonStats` totals *all* fixtures against the players' tallies, and why the statistics
+    screen's charts are a season's record rather than a division's. Its aggregate summary is the
+    other way round — `game.summarise` filters fixtures by `LeagueID`, so it is domestic only. Both
+    are labelled as what they are; splitting the counters would double nine fields on every player
+    and a save file with them.
 12. **A match is shown through one report, however it is opened.** `game.MatchReport` is what both
     match screens draw: the touchline builds one from the live `match.Result` every frame, the
     fixture list rebuilds one from what `season.Fixture` kept of a match played months ago, and
@@ -210,20 +237,35 @@ few simulated seasons.
     six thousand times over is slow enough that the screen cannot re-search as the manager types.
     `transfer.NewPriceList` establishes every pecking order once and `Search` prices from that.
     Reaching for `AskingPrice` inside a loop over players puts the quadratic cost straight back.
-14. **A club's books balance across four flows, and they only disagree slowly.**
-    Money comes in twice — gate receipts, banked match by match in `game.playFixture`, and prize
-    money, settled once a year in `season.payPrizeMoney` — and goes out twice, both weekly in
-    `game.payBills`: wages, and the running costs of `season.RunningCosts`. The constants that tie
-    them together live in `engine/season/finance.go`.
+14. **A club's books balance across five flows, and they only disagree slowly.** Everything lives
+    in `engine/season/finance.go`. In: **gate receipts**, banked match by match in
+    `game.playFixture`; **commercial income**, credited weekly; **broadcast money**, settled
+    once a year in `season.payPrizeMoney`; and **European prize money**, paid as the rounds are
+    reached in `season.EuroAdvance`. Out, both weekly in `game.settleWeek`: **wages** and
+    **running costs**.
 
-    Two rules keep them honest. **Gate receipts belong to the match they were taken at**, so
-    nothing may add a season's worth again at the rollover; doing exactly that paid every club
-    twice for the same nineteen home games. And **running costs are sized against revenue, not
-    against the wage bill**, so a club cannot sell its way out of its overheads — that is what
-    stops a relegated side shedding wages until it is comfortable. Wages alone were once the only
-    outgoing, and the world's money grew by €10bn a season until the median club could buy
-    anybody. `TestPrizeMoneyPaidOnce`, `TestRunningCostsScaleWithRevenue` and the money checks in
-    `TestMultiSeason` guard all of it.
+    Four rules keep them honest.
+
+    - **Gate receipts belong to the match they were taken at**, so nothing may add a season's
+      worth again at the rollover — doing exactly that paid every club twice for the same
+      nineteen home games, invisibly, because ticket prices were zero at the time.
+    - **Running costs are sized against revenue, not against the wage bill**, so a club cannot
+      sell its way out of its overheads. Wages alone were once the only outgoing and the world's
+      money grew by €10bn a season.
+    - **Revenue has to be as skewed as the wage bills are.** This is the load-bearing one, and
+      three separate attempts to fix the giants by tuning costs failed on it. At a stable world
+      total a club is solvent exactly when its share of world revenue exceeds its share of world
+      wages, which is a property of the *distributions* and cannot be tuned away with a single
+      constant. Real Madrid pay 4.8% of the world's wages, so they need about 4.8% of its
+      revenue; modelling only gate and a flat league pot gave them 1.0% and they lost €114m a
+      year at a running-cost share of *zero*. `season.Commercial` is what closes it — sponsorship
+      and merchandise are the largest stream in real football (€594m of Real Madrid's €1,161m)
+      and the game had none of it.
+    - **`League.PrizeMoney` is the division's whole broadcast deal, not the champion's cheque.**
+      `PrizeShare` splits it half equally, a quarter on finishing position and a quarter on
+      market size, and the shares sum to one. The market quarter matters as much as the total:
+      while the pot was paid out flat, a mid-table Getafe drew the same television money as Real
+      Madrid.
 
     `TicketPrice` and `Tactics` are **derived at load** in `pack`'s read loop rather than stored,
     for the reason in invariant 1: a second copy drifts. It was `TicketPrice` being computed by
@@ -232,10 +274,22 @@ few simulated seasons.
     A club's income is not something to add a field for without checking `pack` actually persists
     it.
 
-    What is *not* solved: a handful of elite clubs carry imported wage bills larger than their
-    whole revenue — Real Madrid's €263m against €149m — and no cost-side tuning reaches them,
-    because they lose money at a running-cost share of zero. That needs commercial revenue the
-    game does not model, and it cannot be fixed by moving `runningCostShare`.
+    - **European money has to pass through `Revenue`, not around it.** `season.ExpectedEuro` is
+      what puts a club's continental campaign into `Revenue`, and `Revenue` is what sizes both
+      `RunningCosts` and `TransferBudget`. Crediting the purse straight to `Balance` without it
+      would give thirty-two clubs a large income that nothing spends against, which is the same
+      drift that budgets-from-the-balance produced. `TestEuropeanMoneyIsEarned` guards it.
+
+    **Transfer budgets come from revenue, never from the balance** (`season.TransferBudget`, used
+    by `rebalanceBudgets`). All spending is gated on `Club.TransferBudget` — `transfer.CanAfford`
+    never looks at `Balance` — so while the budget was half of whatever had accumulated, any
+    drift in the books eventually handed every club unlimited buying power. Taking it from
+    revenue with the balance as a ceiling is what makes the remaining slow drift harmless.
+
+    `TestPrizeMoneyPaidOnce`, `TestPrizeMoneyFollowsTheAudience`, `TestCommercialCarriesTheGiants`,
+    `TestRunningCostsScaleWithRevenue`, `TestTransferBudgetComesFromRevenue` and the money checks
+    in `TestMultiSeason` guard all of it. The figures were calibrated against the Deloitte
+    Football Money League, and `game.Finances` is the one query a frontend should use.
 15. **Nobody moves club for a pay cut.** `dev.WageFor` draws the wage curve for a player of a
     given standing, and it is flatter than the wages the squads were imported on: right through
     the middle of the league, but a quarter of what an international already earns. Club wage
@@ -245,13 +299,46 @@ few simulated seasons.
     negotiation — `transfer.WageDemand`, `RunAI`, `Sell`, `OfferContract`, `Renewal`, and the
     renewals in `season.Rollover` — goes through it. `WageFor` is still correct for a player who
     has no current deal to anchor on: a regen being generated, or a free agent being picked up.
+16. **A continental season is built while it is played, and it may never stall.** Everything is in
+    `engine/season/europe.go`. A league fixture list is written out in August; a European one
+    cannot be, because a knockout bracket is drawn from the clubs that came through the round
+    before it. So `Generate` lays out only the group stage, and `EuroAdvance` — step 2 of
+    `game.AdvanceDay`, before the clock moves — settles any round whose matches have all been
+    played, draws the next one, appends its fixtures and pays what reaching it is worth.
+
+    Four things hold that together.
+
+    - **`EuroAdvance` runs before the season-end check, on the same day.** The final is scheduled
+      the moment the semi-finals are settled, so `Sched.Complete()` never reports true with a round
+      still to be drawn. Move the call after the clock and a career ends in April with three
+      trophies unwon.
+    - **Continental fixtures belong to no division.** `Fixture.Comp` is what tells the two apart
+      and a European fixture's `LeagueID` is zero, so it can never reach a league table, a
+      promotion place or `game.summarise`. `Fixture.Continental()` is the test to use.
+    - **No club may be asked to play twice in a day.** `AdvanceDay` plays every fixture on the
+      date and `KickOff` hands the manager the first one, so a European night that landed on a
+      league Saturday would run the same players down twice and show the manager only one of the
+      matches. The `calendar` type is what prevents it: it holds every club's committed days and
+      `night()` walks outwards from the target date until it finds one free. Schedule a European
+      fixture any other way and the clash comes straight back.
+    - **Qualification is read off the final tables, before promotion and relegation move anyone.**
+      `Rollover` calls `qualifyForEurope` ahead of `applyPromotionRelegation` for that reason:
+      `Table` is built from `League.ClubIDs`, which relegation rewrites. A club's place is then
+      `Club.Competition`, career state that stands for the whole season whatever happens to its
+      league position — and the one thing `Revenue` consults to know what a club will earn abroad.
+
+    `TestEuropeanSeason` plays a full campaign and checks all of it: three competitions from the
+    draw to a trophy, every tie settled, every round halving the field, and nobody double-booked.
 
 ### Calibration is a test, not a comment
 
-`TestSeasonCalibration` (`game/soak_test.go`) plays a full European season on every run and asserts
+`TestSeasonCalibration` (`game/soak_test.go`) plays a full season across Europe on every run and asserts
 2.50–3.00 goals per match, 39–49% home wins, 20–30% draws, 6–14% of goals from the spot, and a
 believable points spread per league (68–110 for the champion, 8–45 for the bottom club, normalised to
-38 games). Tuning constants live at the top of `engine/match/sim.go`. **Any change to match
+38 games). It measures **league fixtures only** — `Fixture.Continental()` skips the European ties,
+which are played by the same engine but between clubs of a different spread, and counting them in
+would move every figure for a reason that is not tuning. Tuning constants live at the top of
+`engine/match/sim.go`. **Any change to match
 simulation, fitness, development or squad strength must be re-checked against this test** — effects
 there are non-local and often only show up across a whole season. When a change legitimately shifts
 the rates, update both the thresholds and the calibration table in `README.md`.

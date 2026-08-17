@@ -41,7 +41,7 @@ const seasonWrapDays = 3
 // Message is one item of news for the manager's inbox.
 type Message struct {
 	Date model.Date
-	Kind string // "result", "transfer", "injury", "board", "season"
+	Kind string // "result", "transfer", "injury", "board", "season", "europe"
 	Text string
 }
 
@@ -142,7 +142,15 @@ func (g *Game) AdvanceDay() DayReport {
 		}
 	}
 
-	// 2. Daily recovery, healing and sharpness decay.
+	// 2. The continental competitions: ties settled, the next round drawn.
+	if news := season.EuroAdvance(w, g.Sched, g.rng); len(news) > 0 {
+		rep.News = append(rep.News, news...)
+		for _, n := range news {
+			g.post("europe", n)
+		}
+	}
+
+	// 3. Daily recovery, healing and sharpness decay.
 	for i := range w.Players {
 		p := &w.Players[i]
 		if p.Potential == 0 {
@@ -155,17 +163,17 @@ func (g *Game) AdvanceDay() DayReport {
 		}
 	}
 
-	// 3. Wages and running costs, paid weekly on Mondays.
+	// 4. The week's money, settled on Mondays.
 	if w.Date.Weekday() == 1 {
-		g.payBills()
+		g.settleWeek()
 	}
 
-	// 4. Training and development, applied monthly.
+	// 5. Training and development, applied monthly.
 	if w.Date.Day() == 1 {
 		g.develop()
 	}
 
-	// 5. The transfer market.
+	// 6. The transfer market.
 	if news := transfer.RunAI(w, g.rng, 6); len(news) > 0 {
 		rep.News = append(rep.News, news...)
 		for _, n := range news {
@@ -173,7 +181,7 @@ func (g *Game) AdvanceDay() DayReport {
 		}
 	}
 
-	// 6. Move the clock on. The season is not wrapped up the instant the last
+	// 7. Move the clock on. The season is not wrapped up the instant the last
 	// whistle blows: a few days are left on the calendar so the manager can
 	// look over the final tables and scoring charts before the summer begins.
 	w.Date = w.Date.AddDays(1)
@@ -360,11 +368,14 @@ func attendance(w *model.World, home, away *model.Club, r *rng.R) uint32 {
 	return uint32(float64(home.StadiumCap) * fill)
 }
 
-// payBills debits every club's weekly outgoings: the wages, and the cost of
-// running the place. Both are charged together because a club meets them out of
-// the same money, and a manager who only ever saw the wage bill would not
-// understand where the rest of it went.
-func (g *Game) payBills() {
+// settleWeek moves every club's weekly money: commercial income in, wages and
+// the cost of running the place out. They are settled together because a club
+// meets them out of the same account, and a manager who only ever saw the wage
+// bill leave would not understand where the rest of it went.
+//
+// The gate is not here — it is banked at the match it was taken at — and neither
+// is broadcast money, which arrives once a year at the rollover.
+func (g *Game) settleWeek() {
 	w := g.World
 	bill := make(map[uint16]int64, len(w.Clubs))
 	for i := range w.Players {
@@ -376,6 +387,7 @@ func (g *Game) payBills() {
 	for i := range w.Clubs {
 		c := &w.Clubs[i]
 		wasSolvent := c.Balance >= 0
+		c.Balance += season.CommercialIncome(c)
 		c.Balance -= bill[c.ID] + season.RunningCosts(w, c)
 		// Only on the way down: repeating it every Monday of an overdrawn season
 		// would bury every other message in the inbox.
@@ -551,7 +563,9 @@ type Finances struct {
 	Wages          int64
 	WageBudget     int64
 	RunningCosts   int64
-	Revenue        int64 // per season: the gate plus the division's prize money
+	Commercial     int64 // per week
+	Europe         int64 // per season: what a continental campaign can be planned around
+	Revenue        int64 // per season: the gate, the broadcast and European money, and commercial income
 }
 
 // Finances reports what the managed club earns and spends.
@@ -566,6 +580,8 @@ func (g *Game) Finances() Finances {
 		Wages:          g.World.WageBill(c.ID),
 		WageBudget:     c.WageBudget,
 		RunningCosts:   season.RunningCosts(g.World, c),
+		Commercial:     season.CommercialIncome(c),
+		Europe:         season.ExpectedEuro(c),
 		Revenue:        season.Revenue(g.World, c),
 	}
 }

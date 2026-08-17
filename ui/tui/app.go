@@ -29,6 +29,7 @@ const (
 	ScreenTactics
 	ScreenTable
 	ScreenStats
+	ScreenEurope
 	ScreenFixtures
 	ScreenTransfers
 	ScreenInbox
@@ -49,6 +50,13 @@ type Model struct {
 	statusErr     bool
 	quitting      bool
 
+	// Quitting is confirmed before it happens, because there is no autosave and
+	// q sits next to the keys that merely go back a screen. quitYes is where the
+	// cursor is, and it starts on No: the dangerous answer should take a
+	// deliberate move to reach, never a second press of the key that got here.
+	confirmQuit bool
+	quitYes     bool
+
 	// New-game club picker.
 	pickLeague int
 	pickClub   int
@@ -62,6 +70,11 @@ type Model struct {
 	fixtureCur  int
 	inboxCur    int
 	viewPlayer  uint32
+
+	// The European screen: which competition is open, and whether its groups or
+	// its bracket is showing.
+	euroComp    int
+	euroBracket bool
 
 	// The transfer market screen owns its own filters, results and bid panel.
 	mk *market
@@ -182,6 +195,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyTransfers(key)
 	}
 
+	// The quit confirmation owns the keyboard while it is up, so that a stray
+	// letter cannot navigate away from a question that has not been answered.
+	if m.confirmQuit {
+		return m.keyConfirmQuit(key)
+	}
+
 	// Global bindings, available from every screen.
 	switch key {
 	case "ctrl+c":
@@ -189,8 +208,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "q":
 		if m.screen == ScreenHome {
-			m.quitting = true
-			return m, tea.Quit
+			m.confirmQuit, m.quitYes = true, false
+			return m, nil
 		}
 		m.screen = ScreenHome
 		return m, nil
@@ -215,6 +234,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.tableLeague == 0 {
 			m.tableLeague = m.g.Club().LeagueID
 		}
+		return m, nil
+	case "e":
+		m.openEurope()
 		return m, nil
 	case "f":
 		// Open the list on the match that matters now, the next one to be played.
@@ -253,6 +275,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyTactics(key)
 	case ScreenTable, ScreenStats:
 		return m.keyTable(key)
+	case ScreenEurope:
+		return m.keyEurope(key)
 	case ScreenFixtures:
 		return m.keyFixtures(key)
 	case ScreenReport:
@@ -357,6 +381,33 @@ func (m *Model) save() tea.Cmd {
 	}
 	m.setStatus("Saved to "+path, false)
 	return nil
+}
+
+// keyConfirmQuit drives the are-you-sure prompt. Only enter acts on it, and only
+// on Yes, so leaving the game takes a move and a press rather than one key.
+//
+// ctrl+c is deliberately still immediate: it is the terminal's own way out and a
+// program that argued with it would be worse than one that loses a day's play.
+func (m *Model) keyConfirmQuit(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	case "left", "right", "h", "l", "tab", "up", "down", "k", "j":
+		m.quitYes = !m.quitYes
+		return m, nil
+	case "enter":
+		if m.quitYes {
+			m.quitting = true
+			return m, tea.Quit
+		}
+		m.confirmQuit = false
+		return m, nil
+	case "esc", "q", "n":
+		m.confirmQuit = false
+		return m, nil
+	}
+	return m, nil
 }
 
 // ---------------- new game ----------------

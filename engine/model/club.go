@@ -23,6 +23,12 @@ type Club struct {
 	YouthFacilities    uint8
 	YouthRecruitment   uint8
 
+	// Competition is the continental tournament the club is in this season, or
+	// NoComp. It is career state rather than something derived: qualification is
+	// settled by the previous season's final table and then stands for a year,
+	// whatever happens to the club's league position in the meantime.
+	Competition Competition
+
 	Tactics Tactics
 
 	// Lineup holds the 11 selected player IDs in formation-slot order, then up

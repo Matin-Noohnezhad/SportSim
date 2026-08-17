@@ -39,7 +39,8 @@ func TestScreensRender(t *testing.T) {
 
 	screens := map[string]Screen{
 		"home": ScreenHome, "squad": ScreenSquad, "tactics": ScreenTactics,
-		"table": ScreenTable, "stats": ScreenStats, "fixtures": ScreenFixtures, "transfers": ScreenTransfers,
+		"table": ScreenTable, "stats": ScreenStats, "europe": ScreenEurope,
+		"fixtures": ScreenFixtures, "transfers": ScreenTransfers,
 		"inbox": ScreenInbox, "player": ScreenPlayer, "match": ScreenMatch,
 		"report": ScreenReport, "seasonEnd": ScreenSeasonEnd, "newGame": ScreenNewGame,
 	}
@@ -96,7 +97,8 @@ func TestKeyNavigation(t *testing.T) {
 
 	keys := []string{"s", "down", "down", "up", "enter", "esc", "t", "a", "]", "[",
 		"down", "enter", "down", "enter", "right", "left", "l", "right", "left",
-		"tab", "right", "left", "tab", "f", "r", "/", "esc", "i", "h", "L", " "}
+		"tab", "right", "left", "tab", "e", "right", "right", "right", "left",
+		"tab", "tab", "f", "r", "/", "esc", "i", "h", "L", " "}
 	for _, k := range keys {
 		var msg tea.KeyMsg
 		switch k {
@@ -603,3 +605,80 @@ func TestTransferMarket(t *testing.T) {
 // transferHaggleFloor mirrors what a selling club will come down to, so the
 // test can tell a rejected lowball from a broken adjustment.
 func transferHaggleFloor(ask int64) int64 { return ask * 92 / 100 }
+
+// TestQuitIsConfirmed drives the way out of the game by keypress.
+//
+// q on the home screen used to end the career on the spot, which is a lot to
+// hang on one letter when the neighbouring screens all use the same key to mean
+// "go back" and nothing is saved automatically. The prompt has to open on No, so
+// that leaving takes a deliberate move onto Yes and then enter — pressing q
+// twice, or enter straight away, must keep the manager in their job.
+func TestQuitIsConfirmed(t *testing.T) {
+	g, _ := game.New("Tester", 1, 77)
+	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, mk: newMarket()}
+
+	press := func(k string) tea.Cmd {
+		t.Helper()
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+		switch k {
+		case "up", "down", "left", "right", "enter", "tab", "esc":
+			msg = tea.KeyMsg{Type: keyType(k)}
+		}
+		var mm tea.Model = m
+		mm, cmd := m.Update(msg)
+		m = mm.(*Model)
+		if strings.TrimSpace(m.View()) == "" && !m.quitting {
+			t.Fatalf("blank screen after key %q", k)
+		}
+		return cmd
+	}
+
+	if cmd := press("q"); cmd != nil || m.quitting {
+		t.Fatal("q quit the game outright instead of asking")
+	}
+	if !m.confirmQuit {
+		t.Fatal("q did not open the confirmation")
+	}
+	if m.quitYes {
+		t.Error("the confirmation opened on Yes; it must open on No")
+	}
+
+	// Enter without moving keeps the career, which is the whole point of the
+	// cursor starting where it does.
+	if cmd := press("enter"); cmd != nil || m.quitting {
+		t.Fatal("enter on No quit the game")
+	}
+	if m.confirmQuit {
+		t.Error("answering No left the prompt on screen")
+	}
+
+	// Escape is the other way out of the question.
+	press("q")
+	press("esc")
+	if m.confirmQuit || m.quitting {
+		t.Error("esc did not dismiss the confirmation")
+	}
+
+	// While it is up it owns the keyboard: a letter that would normally change
+	// screen must not answer the question by walking away from it.
+	press("q")
+	press("s")
+	if !m.confirmQuit {
+		t.Fatal("a global binding escaped the confirmation")
+	}
+	if m.screen != ScreenHome {
+		t.Errorf("s changed the screen to %v while the prompt was up", m.screen)
+	}
+
+	// Moving onto Yes and confirming is the one path that ends the game.
+	press("right")
+	if !m.quitYes {
+		t.Fatal("right did not move the cursor onto Yes")
+	}
+	if cmd := press("enter"); cmd == nil {
+		t.Fatal("enter on Yes did not quit")
+	}
+	if !m.quitting {
+		t.Error("the model does not know it is quitting")
+	}
+}

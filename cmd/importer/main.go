@@ -33,6 +33,10 @@ type leagueSpec struct {
 	Promoted   uint8
 	Relegated  uint8
 	Reputation uint8
+	// PrizeMoney is the division's whole broadcast deal for a season, not the
+	// champion's cheque: season.PrizeShare splits it across the table, half
+	// equally, a quarter on where a club finished and a quarter on how much of
+	// the audience it brings.
 	PrizeMoney int64
 }
 
@@ -40,19 +44,19 @@ type leagueSpec struct {
 // dataset licenses them. Portugal, the Netherlands and Turkey are top-flight
 // only because EA does not ship their second tiers.
 var wanted = []leagueSpec{
-	{13, "Premier League", "England", "ENG", 1, 0, 3, 95, 175_000_000},
-	{14, "Championship", "England", "ENG", 2, 3, 0, 68, 12_000_000},
-	{53, "La Liga", "Spain", "ESP", 1, 0, 3, 92, 140_000_000},
-	{54, "La Liga 2", "Spain", "ESP", 2, 3, 0, 60, 8_000_000},
-	{19, "Bundesliga", "Germany", "GER", 1, 0, 3, 90, 110_000_000},
-	{20, "2. Bundesliga", "Germany", "GER", 2, 3, 0, 62, 9_000_000},
-	{31, "Serie A", "Italy", "ITA", 1, 0, 3, 89, 120_000_000},
-	{32, "Serie B", "Italy", "ITA", 2, 3, 0, 60, 7_500_000},
-	{16, "Ligue 1", "France", "FRA", 1, 0, 3, 82, 85_000_000},
-	{17, "Ligue 2", "France", "FRA", 2, 3, 0, 55, 6_000_000},
-	{308, "Primeira Liga", "Portugal", "POR", 1, 0, 0, 76, 40_000_000},
-	{10, "Eredivisie", "Netherlands", "NED", 1, 0, 0, 75, 38_000_000},
-	{68, "Süper Lig", "Türkiye", "TUR", 1, 0, 0, 71, 30_000_000},
+	{13, "Premier League", "England", "ENG", 1, 0, 3, 95, 1_200_000_000},
+	{14, "Championship", "England", "ENG", 2, 3, 0, 68, 70_000_000},
+	{53, "La Liga", "Spain", "ESP", 1, 0, 3, 92, 550_000_000},
+	{54, "La Liga 2", "Spain", "ESP", 2, 3, 0, 60, 45_000_000},
+	{19, "Bundesliga", "Germany", "GER", 1, 0, 3, 90, 430_000_000},
+	{20, "2. Bundesliga", "Germany", "GER", 2, 3, 0, 62, 95_000_000},
+	{31, "Serie A", "Italy", "ITA", 1, 0, 3, 89, 440_000_000},
+	{32, "Serie B", "Italy", "ITA", 2, 3, 0, 60, 35_000_000},
+	{16, "Ligue 1", "France", "FRA", 1, 0, 3, 82, 195_000_000},
+	{17, "Ligue 2", "France", "FRA", 2, 3, 0, 55, 27_000_000},
+	{308, "Primeira Liga", "Portugal", "POR", 1, 0, 0, 76, 47_000_000},
+	{10, "Eredivisie", "Netherlands", "NED", 1, 0, 0, 75, 35_000_000},
+	{68, "Süper Lig", "Türkiye", "TUR", 1, 0, 0, 71, 47_000_000},
 }
 
 // attrCols maps each engine attribute to its CSV column name.

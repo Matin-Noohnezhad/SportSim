@@ -23,6 +23,10 @@ func (m *Model) View() string {
 		return "loading..."
 	}
 
+	if m.confirmQuit {
+		return m.header() + "\n" + m.quitPanel() + "\n" + m.footer()
+	}
+
 	var body string
 	switch m.screen {
 	case ScreenHome:
@@ -35,6 +39,8 @@ func (m *Model) View() string {
 		body = m.viewTable()
 	case ScreenStats:
 		body = m.viewStats()
+	case ScreenEurope:
+		body = m.viewEurope()
 	case ScreenFixtures:
 		body = m.viewFixtures()
 	case ScreenTransfers:
@@ -51,6 +57,37 @@ func (m *Model) View() string {
 		body = m.viewSeasonEnd()
 	}
 	return m.header() + "\n" + body + "\n" + m.footer()
+}
+
+// quitPanel asks whether the manager really means it, with the cursor on No.
+//
+// It names what would be lost rather than asking in the abstract, because the
+// answer depends on it: there is no autosave, so everything since the last S is
+// the real stake, and a match left part-played cannot be saved at all.
+func (m *Model) quitPanel() string {
+	var b strings.Builder
+
+	b.WriteString(stTitle.Render("Leave SportSim?") + "\n\n")
+	b.WriteString("  " + stMuted.Render("Any progress since your last save will be lost.") + "\n")
+	if m.g != nil && m.g.MatchInProgress() {
+		b.WriteString("  " + stBad.Render("A match is part-played — it cannot be saved, and will be lost.") + "\n")
+	}
+	b.WriteString("\n")
+
+	// The marker carries the choice on its own. Highlighting alone would leave a
+	// terminal without colour showing two identical options, and this is the one
+	// prompt in the game where picking the wrong one cannot be undone.
+	choice := func(label string, on bool) string {
+		if on {
+			return stSelected.Render(fmt.Sprintf(" ▸ %s ", label))
+		}
+		return fmt.Sprintf("   %s ", label)
+	}
+	b.WriteString("  " + choice("No, keep playing", !m.quitYes) +
+		"   " + choice("Yes, quit", m.quitYes) + "\n\n")
+	b.WriteString("  " + stMuted.Render("[←→] choose   [enter] confirm   [esc] back to the game"))
+
+	return stPanel.Render(b.String())
 }
 
 // ---------------- chrome ----------------
@@ -79,7 +116,10 @@ func (m *Model) header() string {
 }
 
 func (m *Model) footer() string {
-	keys := "[space] day  [w] to next match  [m] +30 days  [s]quad [t]actics [l]eague [f]ixtures t[r]ansfers [i]nbox  [S]ave  [q]uit"
+	keys := "[space] day  [w] next match  [m] +30 days  [s]quad [t]actics [l]eague [e]urope [f]ixtures t[r]ansfers [i]nbox  [S]ave  [q]uit"
+	if m.confirmQuit {
+		return stBar.Width(max(m.width-2, 20)).Render("[←→] choose  [enter] confirm  [esc] back to the game")
+	}
 	switch m.screen {
 	case ScreenSquad:
 		keys = "[↑↓] move  [enter] profile  [c] offer contract  [x] sell  [space] advance day  [q] back"
@@ -89,6 +129,8 @@ func (m *Model) footer() string {
 		keys = "[←→] change division  [tab] statistics  [space] advance day  [q] back"
 	case ScreenStats:
 		keys = "[←→] change division  [tab] back to the table  [space] advance day  [q] back"
+	case ScreenEurope:
+		keys = "[←→] change competition  [tab] groups / knockout  [space] advance day  [q] back"
 	case ScreenTransfers:
 		switch {
 		case m.mk.bid != nil:
@@ -244,12 +286,17 @@ func (m *Model) viewHome() string {
 		}
 		b.WriteString("  " + stHeader.Render("NEXT MATCH") +
 			stMuted.Render("   [f] fixtures and past match reports") + "\n")
-		b.WriteString(fmt.Sprintf("  %s (%s)  %s  %s\n\n",
+		b.WriteString(fmt.Sprintf("  %s (%s)  %s  %s\n",
 			stBold.Render(g.World.ClubName(opp)), venue,
 			stMuted.Render(f.Date.Short()), stMuted.Render("— "+when)))
+		b.WriteString("  " + stMuted.Render(g.CompetitionLabel(f)) + "\n\n")
 	} else {
 		b.WriteString("  " + stMuted.Render("No fixtures remaining this season.") + "\n\n")
 	}
+
+	// Where the club stands in Europe, which no other screen on the way past
+	// would show and which is half of what a good season means.
+	b.WriteString(m.europeLine())
 
 	// Mini league table around the managed club.
 	if l := g.League(); l != nil {
@@ -276,8 +323,12 @@ func (m *Model) viewHome() string {
 	fin := g.Finances()
 	b.WriteString(fmt.Sprintf("  Balance %s    Transfer budget %s    Revenue %s per season\n",
 		money(fin.Balance), money(fin.TransferBudget), money(fin.Revenue)))
-	b.WriteString(fmt.Sprintf("  Wages %s of %s per week    Running costs %s per week\n",
-		money(fin.Wages), money(fin.WageBudget), money(fin.RunningCosts)))
+	b.WriteString(fmt.Sprintf("  Wages %s of %s per week    Running costs %s    Commercial %s per week\n",
+		money(fin.Wages), money(fin.WageBudget), money(fin.RunningCosts), money(fin.Commercial)))
+	if fin.Europe > 0 {
+		b.WriteString(fmt.Sprintf("  European prize money %s of that, before a knockout round is reached\n",
+			money(fin.Europe)))
+	}
 	b.WriteString(fmt.Sprintf("  Squad %d players    Stadium %s    Reputation %d/100    %s\n\n",
 		g.World.SquadSize(c.ID), comma(int64(c.StadiumCap)), c.Reputation,
 		stMuted.Render(transfer.WindowName(g.World.Date))))
@@ -714,10 +765,16 @@ func (m *Model) viewFixtures() string {
 		if f.Away == c.ID {
 			opp, venue = g.World.ClubName(f.Home), "A"
 		}
+		// A European night is worth telling apart from a league Saturday at a
+		// glance, since it is the same list and the same opponents either way.
+		tag := "    "
+		if f.Continental() {
+			tag = stTitle.Render(padVisible(f.Comp.Short(), 4))
+		}
 		var line string
 		if !f.Played {
-			line = fmt.Sprintf("%-12s %s  %-26s %s",
-				f.Date.Short(), venue, trunc(opp, 26), stMuted.Render("—"))
+			line = fmt.Sprintf("%-8s %s %s %-26s %s",
+				f.Date.Short(), tag, venue, trunc(opp, 26), stMuted.Render("—"))
 		} else {
 			ours, theirs := int(f.HomeGoals), int(f.AwayGoals)
 			if f.Away == c.ID {
@@ -730,10 +787,14 @@ func (m *Model) viewFixtures() string {
 			case ours < theirs:
 				res, st = "L", stBad
 			}
-			line = fmt.Sprintf("%-12s %s  %-26s %s %s",
-				f.Date.Short(), venue, trunc(opp, 26),
+			note := scorerLine(g, f)
+			if pens := game.ShootoutLine(f); pens != "" {
+				note = pens + " — " + note
+			}
+			line = fmt.Sprintf("%-8s %s %s %-26s %s %s",
+				f.Date.Short(), tag, venue, trunc(opp, 26),
 				st.Render(fmt.Sprintf("%s %d-%d", res, ours, theirs)),
-				stMuted.Render(scorerLine(g, f)))
+				stMuted.Render(note))
 		}
 		b.WriteString("  " + m.selectable(line, i == m.fixtureCur) + "\n")
 	}
@@ -777,6 +838,8 @@ func (m *Model) viewInbox() string {
 			icon, st = "⇄", stTitle
 		case "injury":
 			icon, st = "✚", stBad
+		case "europe":
+			icon, st = "✦", stTitle
 		case "season":
 			icon, st = "★", stGood
 		case "board":

@@ -49,6 +49,17 @@ type Fixture struct {
 	Home     uint16
 	Away     uint16
 
+	// ---- continental fixtures ----
+	//
+	// A league match leaves all of these zero, which costs a save file nothing:
+	// gob writes no bytes for a zero field. Comp is what tells the two apart —
+	// a continental fixture belongs to no division, so its LeagueID is zero and
+	// it can never reach a league table.
+	Comp  model.Competition
+	Stage Stage
+	Group uint8 // 1-based group in the group stage, 0 in a knockout round
+	Leg   uint8 // 1 or 2 in a two-legged tie, 0 otherwise
+
 	Played     bool
 	HomeGoals  uint8
 	AwayGoals  uint8
@@ -57,12 +68,28 @@ type Fixture struct {
 	Reds       []Dismissal
 	Stats      [2]match.TeamStats
 	Lines      []match.PlayerLine
+
+	// A shootout is kept on the leg that went to one, so a fixture that decided
+	// a tie can be read back knowing how it was actually settled.
+	ShootoutHome uint8
+	ShootoutAway uint8
 }
 
-// Schedule is every fixture in the game world for one season.
+// Continental reports whether the fixture is a European tie rather than a
+// league match.
+func (f *Fixture) Continental() bool { return f.Comp != model.NoComp }
+
+// Schedule is every fixture in the game world for one season, domestic and
+// continental alike.
+//
+// The continental knockout rounds are not in it at kickoff: a bracket is drawn
+// only once the round before it has been played, so Euro carries how far each
+// tournament has got and EuroAdvance appends the next round's fixtures as they
+// are drawn.
 type Schedule struct {
 	Year     int
 	Fixtures []Fixture
+	Euro     *Euro
 }
 
 // Row is one club's line in a league table.
@@ -133,6 +160,11 @@ func Generate(w *model.World, year int, r *rng.R) *Schedule {
 	sort.SliceStable(s.Fixtures, func(a, b int) bool {
 		return s.Fixtures[a].Date < s.Fixtures[b].Date
 	})
+
+	// Europe is drawn last, so that a continental night can be moved off a day a
+	// club is already playing on. Only the group stage is scheduled now — the
+	// knockout draws are made as the rounds are reached, in EuroAdvance.
+	drawEurope(w, s, r)
 	return s
 }
 
@@ -233,16 +265,26 @@ func Table(w *model.World, s *Schedule, leagueID uint16) []Row {
 	if l == nil {
 		return nil
 	}
-	idx := make(map[uint16]int, len(l.ClubIDs))
-	rows := make([]Row, 0, len(l.ClubIDs))
-	for _, c := range l.ClubIDs {
+	return standings(w, s, l.ClubIDs, func(f *Fixture) bool {
+		return !f.Continental() && f.LeagueID == leagueID
+	})
+}
+
+// standings is the one definition of a table, whether it is a division's or a
+// European group's: the same three points for a win, the same tie-breaks and
+// the same run of recent form. A second copy of this for the group stage would
+// be a second set of rules to keep in step.
+func standings(w *model.World, s *Schedule, clubs []uint16, include func(*Fixture) bool) []Row {
+	idx := make(map[uint16]int, len(clubs))
+	rows := make([]Row, 0, len(clubs))
+	for _, c := range clubs {
 		idx[c] = len(rows)
 		rows = append(rows, Row{ClubID: c, Form: make([]byte, 0, 6)})
 	}
 
 	for i := range s.Fixtures {
 		f := &s.Fixtures[i]
-		if f.LeagueID != leagueID || !f.Played {
+		if !f.Played || !include(f) {
 			continue
 		}
 		hi, ok1 := idx[f.Home]

@@ -24,7 +24,21 @@ import (
 // played fixture the match report it keeps — box score, sendings-off and, for
 // the managed club's own matches, the player ratings; version 4 added the
 // manager's transfer shortlist.
-const formatVersion = 4
+//
+// Version 5 changes no field, but League.PrizeMoney means something different:
+// it is now the division's whole broadcast deal rather than the champion's
+// cheque, and season.PrizeShare divides it. A version-4 save carries the old
+// figures, which the new split would read as a pot seven times too small — the
+// save would load and quietly starve every club in the game, which is worse
+// than refusing it.
+//
+// Version 6 adds the continental competitions: a fixture now says which
+// competition, stage, group and leg it belongs to and how any shootout went, a
+// club remembers which tournament it qualified for, and the schedule carries
+// the European season's draws and brackets. A version-5 save has none of it and
+// would load into a career with no European football at all — and, worse, with
+// clubs whose budgets were set against revenue that included it.
+const formatVersion = 6
 
 // snapshot is the on-disk representation of a career.
 type snapshot struct {

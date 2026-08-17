@@ -60,8 +60,8 @@ func (m *Model) viewReport() string {
 	var b strings.Builder
 	b.WriteString("\n  " + stTitle.Render(fmt.Sprintf("%s  %d - %d  %s",
 		rep.Home, rep.HomeGoals, rep.AwayGoals, rep.Away)) + "\n")
-	b.WriteString("  " + stMuted.Render(fmt.Sprintf("%s   Attendance %s",
-		rep.Date.Short(), comma(int64(rep.Attendance)))) + "\n\n")
+	b.WriteString("  " + stMuted.Render(fmt.Sprintf("%s   %s   Attendance %s",
+		rep.Date.Short(), rep.Competition, comma(int64(rep.Attendance)))) + "\n\n")
 	b.WriteString(tabBar(m.reportTab, tabOverview))
 	b.WriteString(m.reportBody(rep, m.reportTab))
 	return b.String()

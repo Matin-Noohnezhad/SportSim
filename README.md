@@ -6,13 +6,18 @@ gigabytes of stadium textures.
 
 Real clubs, real players, real squads: 13 divisions across Europe's eight
 strongest football countries, 252 clubs and 6,400 players imported from
-current EA FC data.
+current EA FC data — and three continental competitions on top of them, from
+the group stage in September to a final at the end of May.
 
 ```
  Arsenal  3rd Premier League                        Sat 28 Nov 2026   2026/27   €121.4M
 
   NEXT MATCH
   Liverpool (away)  2 Dec  — in 4 days
+  Premier League
+
+  EUROPE   [e] the competitions in full
+  UEFA Champions League, Group B
 
   PREMIER LEAGUE
    1. Manchester City           15  10   3   2   37    8   +29   33  WDWWWW
@@ -21,8 +26,9 @@ current EA FC data.
    4. Brighton & Hove Albion    15   9   4   2   23    9   +14   31  WLWDDD
 
   CLUB
-  Balance €36.9M    Transfer budget €121.4M    Revenue €174.5M per season
-  Wages €3.4M of €3.9M per week    Running costs €2.0M per week
+  Balance €116.9M   Transfer budget €121.4M   Revenue €717.5M per season
+  Wages €3.4M of €3.9M per week   Running costs €8.6M   Commercial €11.3M per week
+  European prize money €31.5M of that, before a knockout round is reached
   Squad 23 players    Stadium 56,791    Reputation 94/100
 ```
 
@@ -30,12 +36,12 @@ current EA FC data.
 
 | | |
 |---|---|
-| Binary | 6.1 MB, single file, no install |
+| Binary | 6.4 MB, single file, no install |
 | Game database | 446 KB, embedded in the binary |
 | Memory in play | ~5 MB |
 | Startup | 20 ms |
-| Save file | ~830 KB, a season of match reports included |
-| Full European season | 4,676 matches in ~3 seconds |
+| Save file | ~850 KB, a season of match reports included |
+| Full season | 4,676 league matches and 247 European ties in ~3 seconds |
 
 There is nothing to download at runtime and nothing to install. The whole
 game is one executable.
@@ -54,7 +60,10 @@ sportsim -load FILE   resume a specific save
 sportsim -list        list saved careers
 ```
 
-Saves live in `~/.sportsim/saves`.
+Saves live in `~/.sportsim/saves`. There is no autosave, so `q` on the home
+screen asks before it closes the game. The prompt opens on **No** — leaving takes
+`→` and then `enter`, so the key that means "go back" on every other screen
+cannot end a career by being pressed twice. `ctrl+c` still exits immediately.
 
 ### Keys
 
@@ -62,13 +71,13 @@ Saves live in `~/.sportsim/saves`.
 |---|---|
 | `space` | advance one day |
 | `w` / `m` | fast-forward to your next match / 30 days |
-| `s` `t` `l` `f` `r` `i` | squad, tactics, league, fixtures, transfers, inbox |
-| `←` `→` | on the league screen, change division; on the market, change the sort |
-| `tab` | switch view: the table and the season statistics, or a match report's pages |
+| `s` `t` `l` `e` `f` `r` `i` | squad, tactics, league, Europe, fixtures, transfers, inbox |
+| `←` `→` | on the league screen, change division; in Europe, change competition; on the market, change the sort |
+| `tab` | switch view: the table and the season statistics, a competition's groups and its bracket, or a match report's pages |
 | `enter` | on the fixture list, open a played match's report |
 | `L` | toggle between a minute-by-minute feed and an instant result |
 | `S` | save |
-| `q` | back, or quit from the home screen |
+| `q` | back, or quit from the home screen — quitting asks first |
 
 During a match, when the feed is running you are in the dugout and the keys
 change:
@@ -215,30 +224,93 @@ Nobody moves club for a pay cut. A player under contract asks for at least what
 they already earn, which is what keeps wage demands and wage budgets — both
 derived from the squads as imported — on the same scale.
 
+## Europe
+
+Finish high enough in your division and you go into one of three continental
+competitions the following season. `e` opens them.
+
+| | Entrants | Format |
+|---|---|---|
+| **UEFA Champions League** | 32 | 8 groups of 4, then a round of 16 |
+| **UEFA Europa League** | 16 | 4 groups of 4, then quarter-finals |
+| **UEFA Conference League** | 16 | 4 groups of 4, then quarter-finals |
+
+Sixty-four of the 150 top-flight clubs qualify. The places are split between the
+eight countries in proportion to the square of their division's reputation —
+this game's version of the UEFA coefficient list — and no country may take more
+than five Champions League places. In practice England sends about eleven clubs
+into Europe and Türkiye about five, which is roughly the share the real
+coefficient list gives them among those same eight countries.
+
+Groups are drawn from four seeding pots and keep clubs of the same country
+apart. Every group plays six matches, home and away, and the top two go
+through. The knockout rounds are two-legged except the final, decided on
+aggregate and then on penalties; the group winners are seeded into the first
+round and finish their tie at home.
+
+```
+  UEFA Champions League   Quarter-final
+  Liverpool are still in it.
+
+  ROUND OF 16
+  Newcastle United         3 - 2 Sporting CP             17 Feb 2-0   11 Mar 2-1   Newcastle through
+  FC Porto                 3 - 3 Paris Saint-Germain     3-5 on penalties   17 Feb 2-2   11 Mar 1-1
+  Napoli                   2 - 3 Liverpool               17 Feb 2-3   11 Mar 0-0   Liverpool through
+
+  QUARTER-FINAL
+  Liverpool                  -   FC Bayern München       7 Apr   14 Apr
+```
+
+`tab` moves between the group tables and the bracket, and both stay readable all
+season: the groups are still worth looking at in April, and the bracket exists
+from the moment the first draw is made.
+
+European nights are midweek, and a tie is moved off any day either club is
+already playing on — no club is ever asked to play twice in a day. A club that
+goes deep plays about fifty matches instead of thirty-eight, and the extra
+fatigue is real: the squad you rotate is the one that has a squad to rotate.
+
+**The money is the point.** A Champions League campaign is worth more than most
+divisions' entire television deal to a club that goes far in it: €18M for
+turning up, €1M a point in the group, and €11M to €18.5M for every knockout
+round reached, with €6M more for lifting it. The Europa League pays about a
+quarter of that and the Conference League less again — which is exactly what
+makes finishing fourth rather than seventh worth a transfer budget.
+
 ## The club's money
 
-Four flows, all on the home screen:
+Six flows, all on the home screen:
 
 | | |
 |---|---|
 | **Gate receipts** | banked after every home match — the crowd that turned up × your ticket price |
-| **Prize money** | paid once, at the end of the season, scaled by where you finished: the champion takes the division's whole pot, the bottom club about a third of it |
+| **Commercial** | sponsorship, shirt deals, merchandise, tours; paid weekly. The biggest stream by far if you are a big club, and almost nothing if you are not |
+| **Broadcast** | your division's television deal, settled at the end of the season: half shared equally, a quarter on where you finished, a quarter on how much of the audience you bring |
+| **Europe** | participation, points won in the group and every knockout round reached, paid as you reach them |
 | **Wages** | out every Monday |
 | **Running costs** | out every Monday — the stadium, the staff, the academy, the training ground, travel |
 
-Running costs are sized against what the club earns rather than what it pays its
-players, so you cannot sell your way out of them. That is the trap to watch for
-after relegation: a wage bill that was comfortable in the top flight is not
-comfortable against a smaller pot, and the overheads do not fall to meet it.
+The figures are calibrated against the [Deloitte Football Money League](https://www.deloitte.com/uk/en/services/consulting-financial/analysis/deloitte-football-money-league.html),
+scaled to the wage economy the squad data ships with. Real Madrid earn about
+€754M a season against a €263M wage bill, Getafe about €77M — the same ratio to
+each other that the real clubs have.
 
-Your transfer budget is set at the summer rollover from what you actually have —
-roughly half of it — so a season spent in the red costs you the next one's
-signings as well.
+Two consequences worth knowing.
 
-Two things are deliberately not modelled: commercial and sponsorship income, and
-any cost that isn't wages or general overheads. That mostly matters at the very
-top, where a handful of clubs — Real Madrid above all — carry wage bills bigger
-than their entire modelled revenue and will run at a loss whatever you do.
+**Being big is worth more than winning.** The commercial curve is steep and the
+broadcast pot is weighted by market size, so a giant having a poor season still
+out-earns a well-run mid-table club by a distance. That is how football actually
+works, and it is what makes managing a small club a different game rather than a
+slower one.
+
+**Running costs are sized against what you earn, not what you pay your players.**
+You cannot sell your way out of them. That is the trap after relegation: a wage
+bill that was comfortable in the top flight is not comfortable against a smaller
+television deal, and the overheads do not fall to meet it.
+
+Your transfer budget is a share of a season's revenue, capped by what is actually
+in the bank — so a rich season funds signings, but money hoarded over a long
+career does not turn into unlimited buying power.
 
 ## Statistics
 
@@ -275,8 +347,9 @@ is written into its heading.
 | Netherlands | Eredivisie | — |
 | Türkiye | Süper Lig | — |
 
-Portugal, the Netherlands and Türkiye are top-flight only because the source
-dataset does not license their second divisions. Those three leagues therefore
+Only the top flights send clubs to Europe; a second division's reward for a
+good season is promotion. Portugal, the Netherlands and Türkiye are top-flight
+only because the source dataset does not license their second divisions. Those three leagues therefore
 have no promotion or relegation; the other five countries exchange three clubs
 each season. The data model supports any number of tiers per country, so a
 second division is a single line in `cmd/importer/main.go` if a source for one
@@ -315,7 +388,9 @@ the same history exactly.
 ### Calibration
 
 The engine is calibrated against real top-division rates, and every figure below
-is measured on each test run over a full 4,676-match slate.
+is measured on each test run over a full 4,676-match league slate. European ties
+are played by the same engine but between clubs of a different spread, so they
+are counted separately rather than into the target.
 
 Scorelines come from `TestSeasonCalibration`, which plays an actual season with
 squads that tire, lose form and pick up injuries as it goes — that test is the
@@ -323,13 +398,13 @@ binding target:
 
 | | Simulated | Real |
 |---|---|---|
-| Goals per match | 2.74 | ~2.75 |
-| Home / away goals | 1.51 / 1.23 | 1.55 / 1.20 |
-| Home wins / draws | 44.8% / 22.7% | 44% / 26% |
-| Home share of all points | 56.7% | ~56% |
+| Goals per match | 2.79 | ~2.75 |
+| Home / away goals | 1.53 / 1.26 | 1.55 / 1.20 |
+| Home wins / draws | 44.2% / 22.7% | 44% / 26% |
+| Home share of all points | 56.1% | ~56% |
 | Penalties per match | 0.27 | ~0.27 |
-| Goals from the spot | 9.8% | ~9% |
-| Goals assisted | 70.4% | ~70% |
+| Goals from the spot | 9.7% | ~9% |
+| Goals assisted | 70.6% | ~70% |
 
 The box score comes from `TestEngineSanity`, which plays the same fixtures with
 every squad in neutral condition, so it isolates the match engine from a season's
@@ -350,6 +425,10 @@ Premier League    85..24 pts   Liverpool            Ligue 1        76..22 pts   
 La Liga           94..14 pts   Real Madrid          Primeira Liga  88..23 pts   SL Benfica
 Bundesliga        83..19 pts   FC Bayern München    Eredivisie     79..16 pts   AZ Alkmaar
 Serie A           91..10 pts   Inter                Süper Lig      95..19 pts   Galatasaray SK
+
+Champions League  Paris Saint-Germain beat Inter 2-0
+Europa League     Roma beat Aston Villa 1-0
+Conference League Borussia Mönchengladbach beat Nottingham Forest 4-3 on penalties
 ```
 
 ## Architecture
@@ -366,7 +445,7 @@ cmd/importer      build-time CSV → packed database (run once)
 game/             ← the façade every frontend calls
 engine/model      players, clubs, leagues, positions, tactics
 engine/match      match simulation, live clock and touchline, commentary
-engine/season     fixtures, tables, promotion, relegation, rollover
+engine/season     fixtures, tables, promotion, relegation, rollover, Europe
 engine/dev        growth, decline, fitness, morale, valuation
 engine/transfer   asking prices, negotiation, AI market
 engine/rng        deterministic seeded random source
@@ -412,8 +491,13 @@ go test ./...
 | `TestLiveSubstitution` `TestLiveReshape` | touchline changes land, and obey the rules of the game |
 | `TestTouchlineChangesAreForOneMatch` | nothing decided in the dugout outlives the final whistle |
 | `TestClubHasGateIncome` | every club charges something at the turnstile |
-| `TestPrizeMoneyPaidOnce` | the rollover settles prize money and nothing else |
+| `TestPrizeMoneyPaidOnce` | the rollover pays out the broadcast pot exactly, and no more |
+| `TestPrizeMoneyFollowsTheAudience` | television money is weighted by market size, not shared flat |
+| `TestCommercialCarriesTheGiants` | sponsorship scales steeply enough to fund the biggest wage bills |
 | `TestRunningCostsScaleWithRevenue` | overheads follow what a club earns, not what it pays its players |
+| `TestTransferBudgetComesFromRevenue` | buying power comes from income, capped by the bank |
+| `TestEuropeanSeason` | all three competitions run from the draw to a trophy, and nobody plays twice in a day |
+| `TestEuropeanMoneyIsEarned` | continental prize money reaches the books through revenue, not beside it |
 | `TestVenueAlternation` | no club plays three league games running at the same ground |
 | `TestRoundRobinComplete` | every pair still meets twice, once at each ground |
 | `TestMultiSeason` | three seasons leave league sizes, squads, ages and the money intact |
@@ -429,6 +513,7 @@ go test ./...
 | `TestTransferMarket` | the market is filtered, sorted, shortlisted and bid on by keypress |
 | `TestScreensRender` | every screen renders at every cursor position |
 | `TestKeyNavigation` | every screen's key bindings move the cursor without panicking |
+| `TestQuitIsConfirmed` | leaving the game takes a deliberate move onto Yes, never one keypress |
 | `TestTouchlineControl` | a match is managed from kickoff to full time by keypress |
 | `TestNewGameFlow` | the club picker starts a career end to end |
 | `TestResourceUse` | reports binary, memory and speed figures |
