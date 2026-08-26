@@ -16,7 +16,10 @@ type League struct {
 	Relegated uint8 // clubs going down at season end
 
 	Reputation uint8 // 1-100, drives prize money and transfer appeal
-	PrizeMoney int64 // paid to the champion; scaled down the table
+
+	// PrizeMoney is the division's whole broadcast deal for a season, not the
+	// champion's cheque: season.PrizeShare divides it across the table.
+	PrizeMoney int64
 }
 
 // Nation is a country, used for player nationality and league grouping.
@@ -38,6 +41,11 @@ type World struct {
 
 	Date       Date
 	SeasonYear int
+
+	// StartYear is the edition the career began in and never moves, where
+	// SeasonYear advances at every rollover. It is what names a save file, so
+	// two careers at the same club in different eras stay separate.
+	StartYear int
 
 	// HumanClubID is the club the user manages, or 0 while unemployed.
 	HumanClubID uint16

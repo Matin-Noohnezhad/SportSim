@@ -55,16 +55,28 @@ type DayReport struct {
 	Outcome     *season.Outcome
 }
 
-// NewWorld loads the embedded database into a fresh, unstarted world.
-func NewWorld(seed uint64) (*model.World, error) {
-	d, err := assets.Load()
+// Editions returns the seasons a career can start in, oldest first. A frontend
+// offers these as a choice; it never names a year of its own.
+func Editions() []int { return assets.Editions() }
+
+// LatestEdition returns the most recent season available to start in.
+func LatestEdition() int { return assets.Latest() }
+
+// NewWorld loads one season's database into a fresh, unstarted world.
+//
+// The calendar comes from the edition rather than from a constant: the squads,
+// values and wages in the file are a snapshot of that summer, so starting them
+// on any other date would date every player wrongly.
+func NewWorld(year int, seed uint64) (*model.World, error) {
+	d, err := assets.Load(year)
 	if err != nil {
 		return nil, fmt.Errorf("loading game database: %w", err)
 	}
 	w := &model.World{
 		Players: d.Players, Clubs: d.Clubs, Leagues: d.Leagues, Nations: d.Nations,
-		SeasonYear: 2026,
-		Date:       model.NewDate(2026, 7, 1),
+		SeasonYear: d.Year,
+		StartYear:  d.Year,
+		Date:       model.NewDate(d.Year, 7, 1),
 		Seed:       seed,
 	}
 	for i := range w.Players {
@@ -77,9 +89,9 @@ func NewWorld(seed uint64) (*model.World, error) {
 	return w, nil
 }
 
-// New starts a career managing the given club.
-func New(managerName string, clubID uint16, seed uint64) (*Game, error) {
-	w, err := NewWorld(seed)
+// New starts a career managing the given club, in the given season's edition.
+func New(managerName string, clubID uint16, year int, seed uint64) (*Game, error) {
+	w, err := NewWorld(year, seed)
 	if err != nil {
 		return nil, err
 	}

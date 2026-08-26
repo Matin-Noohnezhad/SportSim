@@ -7,7 +7,6 @@ package tui
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -57,10 +56,11 @@ type Model struct {
 	confirmQuit bool
 	quitYes     bool
 
-	// New-game club picker.
+	// New-game picker: which edition, then which division, then which club.
+	pickYear   int
 	pickLeague int
 	pickClub   int
-	pickStage  int // 0 = choosing league, 1 = choosing club
+	pickStage  int
 	nameInput  string
 
 	// Cursors for the list screens.
@@ -102,6 +102,8 @@ type Model struct {
 // from that save file instead of starting the new-game flow.
 func New(path string) (*Model, error) {
 	m := &Model{screen: ScreenNewGame, liveMode: true, swapFrom: -1, mk: newMarket()}
+	m.pickYear = len(game.Editions()) - 1 // the newest season, as the likeliest choice
+	m.pickStage = firstStage()
 	if path != "" {
 		g, err := store.Load(path)
 		if err != nil {
@@ -373,8 +375,7 @@ func (m *Model) save() tea.Cmd {
 		m.setStatus("Finish the match before saving.", true)
 		return nil
 	}
-	name := strings.ReplaceAll(m.g.World.ClubName(m.g.World.HumanClubID), " ", "_")
-	path := filepath.Join(store.Dir(), name+".sav")
+	path := store.Path(m.g)
 	if err := store.Save(m.g, path); err != nil {
 		m.setStatus("Save failed: "+err.Error(), true)
 		return nil
@@ -412,8 +413,39 @@ func (m *Model) keyConfirmQuit(key string) (tea.Model, tea.Cmd) {
 
 // ---------------- new game ----------------
 
+// The new-game flow picks a season, then a division, then a club.
+const (
+	stageYear = iota
+	stageLeague
+	stageClub
+)
+
+// firstStage is where the flow opens. A game shipping only one edition has
+// nothing to choose between, so it starts on the division and the year step is
+// never seen at all.
+func firstStage() int {
+	if len(game.Editions()) < 2 {
+		return stageLeague
+	}
+	return stageYear
+}
+
+// startYear is the season the picker is currently sitting on.
+func (m *Model) startYear() int {
+	years := game.Editions()
+	if len(years) == 0 {
+		return 0
+	}
+	if m.pickYear < 0 || m.pickYear >= len(years) {
+		return years[len(years)-1]
+	}
+	return years[m.pickYear]
+}
+
 func (m *Model) keyNewGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	leagues := previewLeagues()
+	years := game.Editions()
+	year := m.startYear()
+	leagues := previewLeagues(year)
 
 	switch msg.String() {
 	case "ctrl+c", "esc":
@@ -421,26 +453,45 @@ func (m *Model) keyNewGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "up", "k":
-		if m.pickStage == 0 && m.pickLeague > 0 {
-			m.pickLeague--
-		} else if m.pickStage == 1 && m.pickClub > 0 {
-			m.pickClub--
+		switch m.pickStage {
+		case stageYear:
+			if m.pickYear > 0 {
+				m.pickYear--
+			}
+		case stageLeague:
+			if m.pickLeague > 0 {
+				m.pickLeague--
+			}
+		case stageClub:
+			if m.pickClub > 0 {
+				m.pickClub--
+			}
 		}
 	case "down", "j":
-		if m.pickStage == 0 && m.pickLeague < len(leagues)-1 {
-			m.pickLeague++
-		} else if m.pickStage == 1 {
-			if n := len(previewClubs(uint16(m.pickLeague + 1))); m.pickClub < n-1 {
+		switch m.pickStage {
+		case stageYear:
+			if m.pickYear < len(years)-1 {
+				m.pickYear++
+			}
+		case stageLeague:
+			if m.pickLeague < len(leagues)-1 {
+				m.pickLeague++
+			}
+		case stageClub:
+			if n := len(previewClubs(year, m.leagueID())); m.pickClub < n-1 {
 				m.pickClub++
 			}
 		}
 	case "enter":
-		if m.pickStage == 0 {
-			m.pickStage = 1
-			m.pickClub = 0
+		switch m.pickStage {
+		case stageYear:
+			m.pickStage, m.pickLeague = stageLeague, 0
+			return m, nil
+		case stageLeague:
+			m.pickStage, m.pickClub = stageClub, 0
 			return m, nil
 		}
-		clubs := previewClubs(uint16(m.pickLeague + 1))
+		clubs := previewClubs(year, m.leagueID())
 		if m.pickClub >= len(clubs) {
 			return m, nil
 		}
@@ -448,7 +499,7 @@ func (m *Model) keyNewGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if name == "" {
 			name = "Manager"
 		}
-		g, err := game.New(name, clubs[m.pickClub].ID, uint64(time.Now().UnixNano()))
+		g, err := game.New(name, clubs[m.pickClub].ID, year, uint64(time.Now().UnixNano()))
 		if err != nil {
 			m.setStatus(err.Error(), true)
 			return m, nil
@@ -457,20 +508,34 @@ func (m *Model) keyNewGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.g = g
 		m.tableLeague = g.Club().LeagueID
 		m.screen = ScreenHome
-		m.setStatus(fmt.Sprintf("You are now the manager of %s.", g.Club().Name), false)
+		m.setStatus(fmt.Sprintf("You are now the manager of %s, %s.",
+			g.Club().Name, model.SeasonLabel(g.World.SeasonYear)), false)
 	case "backspace":
-		if m.pickStage == 1 {
-			m.pickStage = 0
+		if m.pickStage > firstStage() {
+			m.pickStage--
 		} else if len(m.nameInput) > 0 {
 			r := []rune(m.nameInput)
 			m.nameInput = string(r[:len(r)-1])
 		}
 	default:
-		if m.pickStage == 0 && len(msg.String()) == 1 && len([]rune(m.nameInput)) < 24 {
+		// The name is typed on whichever screen opens the flow, so that a game
+		// with one edition behaves exactly as it did before the year step.
+		if m.pickStage == firstStage() && len(msg.String()) == 1 && len([]rune(m.nameInput)) < 24 {
 			m.nameInput += msg.String()
 		}
 	}
 	return m, nil
+}
+
+// leagueID is the division the picker is sitting on. It reads the ID off the
+// league rather than assuming it is the cursor plus one: an edition that did
+// not license every division has fewer of them, and the IDs are renumbered.
+func (m *Model) leagueID() uint16 {
+	leagues := previewLeagues(m.startYear())
+	if m.pickLeague < 0 || m.pickLeague >= len(leagues) {
+		return 0
+	}
+	return leagues[m.pickLeague].ID
 }
 
 // ---------------- squad ----------------

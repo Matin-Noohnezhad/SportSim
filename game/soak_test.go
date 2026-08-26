@@ -15,7 +15,7 @@ import (
 // contracts, retirement, youth intake — so this is the test most likely to
 // catch a career quietly degenerating over time.
 func TestMultiSeason(t *testing.T) {
-	g, err := game.New("Test Manager", 1, 2026)
+	g, err := game.New("Test Manager", 1, game.LatestEdition(), 2026)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestMultiSeason(t *testing.T) {
 // TestSaveRoundTrip verifies a career survives being written to disk and read
 // back, and that it resumes on the same random stream.
 func TestSaveRoundTrip(t *testing.T) {
-	g, err := game.New("Round Trip", 1, 99)
+	g, err := game.New("Round Trip", 1, game.LatestEdition(), 99)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func min(a, b int) int {
 // it measures the game as a player actually experiences it, with fatigue,
 // injuries, suspensions, form, transfers and squad rotation all in play.
 func TestSeasonCalibration(t *testing.T) {
-	g, err := game.New("Calibration", 1, 2026)
+	g, err := game.New("Calibration", 1, game.LatestEdition(), 2026)
 	if err != nil {
 		t.Fatal(err)
 	}

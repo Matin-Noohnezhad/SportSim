@@ -12,7 +12,7 @@ import (
 // an unfiltered search of the whole world is fast enough to run on every
 // keystroke — the screen re-searches as the manager types.
 func TestMarketSearch(t *testing.T) {
-	g, err := New("Tester", 1, 5)
+	g, err := New("Tester", 1, LatestEdition(), 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ const searchCap = 300
 // disturbs the world: a manager must be able to price up the whole market
 // without the act of looking changing what happens next.
 func TestQuoteIsFree(t *testing.T) {
-	g, _ := New("Tester", 1, 9)
+	g, _ := New("Tester", 1, LatestEdition(), 9)
 	rows, _ := g.Search(SearchFilter{Position: AnyPosition}, 20)
 	target := rows[0]
 
@@ -140,7 +140,7 @@ func TestQuoteIsFree(t *testing.T) {
 // TestShortlist checks the shortlist round-trips through the search scope, since
 // that is the only way the manager ever sees it.
 func TestShortlist(t *testing.T) {
-	g, _ := New("Tester", 1, 13)
+	g, _ := New("Tester", 1, LatestEdition(), 13)
 	rows, _ := g.Search(SearchFilter{Position: AnyPosition}, 10)
 
 	if listed := g.ToggleShortlist(rows[0].PlayerID); !listed {
@@ -175,7 +175,7 @@ func TestShortlist(t *testing.T) {
 // against what the manager already has, in a position the player actually
 // plays, rather than against the abstract rating scale.
 func TestImprovementIsAgainstOurSquad(t *testing.T) {
-	g, _ := New("Tester", 1, 17)
+	g, _ := New("Tester", 1, LatestEdition(), 17)
 	best := g.bestPerPosition()
 
 	rows, _ := g.Search(SearchFilter{Position: AnyPosition, Sort: SortImproves}, 50)
