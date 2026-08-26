@@ -498,12 +498,37 @@ for it — nothing else needs changing to add a season.
 
 `-year` is required. The CSV does not say which edition it is, and the year sets
 the calendar, every player's age and every contract's expiry, so guessing it
-would date the whole world silently and wrongly.
+would date the whole world silently and wrongly. It also scales each division's
+broadcast money to the era: the wages in the file are already correct for their
+season, while the pots in the importer's `wanted` table are today's.
+
+The column names in the dataset have drifted across editions — `sofifa_id` became
+`player_id`, marking gained `_awareness`, the `team_` prefix became `club_` — so
+the importer keeps a table of the older spellings, and `-inspect` reports what a
+file actually offers without writing anything:
+
+```sh
+go run ./cmd/importer -in data/players_16.csv -year 2016 -inspect
+```
+
+```
+  player_id                        <- sofifa_id (alias)
+  league_id                        absent, covered by the other
+  defending_marking_awareness      <- defending_marking (alias)
+  ...
+  English Premier League      440 rows  -> Premier League (by name)
+  Spain Primera Division      440 rows  -> La Liga (by name)
+```
+
+Run it first against any edition the game has not seen before: an unrecognised
+column or division name is the one failure a new file is likely to hit, and the
+fix is a line in `aliases` or in a division's `SrcNames`.
 
 The importer reads the CSV and writes the packed format: a deduplicated string
 table plus fixed-width records, 71 bytes per player. Club reputation, stadium
 capacity and finances are not in the source data and are derived from squad
-strength, normalised against the range the dataset actually spans.
+strength, normalised against the range the dataset actually spans. A division an
+edition did not license is dropped rather than left empty.
 
 ## Tests
 
@@ -537,6 +562,8 @@ go test ./...
 | `TestEveryEditionFieldsASeason` | every season embedded can actually be played |
 | `TestStartYearOutlivesTheSeason` | a career's starting year survives the rollovers that follow it |
 | `TestPathNamesTheCareer` | a save is named for its club and its era, and does not move each summer |
+| `TestOldColumnNamesStillImport` | an older edition's column names import identically to today's |
+| `TestUnlicensedDivisionsAreDropped` | a division an edition never had leaves no empty league behind |
 | `TestSeasonStats` | the charts agree with the fixtures they were compiled from |
 | `TestMatchReport` | a match reopened from the fixture list reads as it did at full time |
 | `TestFixtureReportNavigation` | the fixture list opens a played match by keypress |

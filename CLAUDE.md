@@ -35,13 +35,16 @@ Rebuilding the packed database (only when refreshing player data or adding a sea
 `assets/world_2026.dat` is committed):
 
 ```sh
-go run ./cmd/importer -in data/players.csv -year 2026   # -> assets/world_2026.dat
+go run ./cmd/importer -in data/players.csv -year 2026            # -> assets/world_2026.dat
+go run ./cmd/importer -in data/players_16.csv -year 2016 -inspect # what does this file offer?
 ```
 
 `-year` is required and there is deliberately no default — see invariant 17.
 
 `data/players.csv` is gitignored (11 MB EA FC export) — it is not in a clean clone, so the importer
-cannot be run without obtaining it separately. Everything else builds and tests without it.
+cannot be run without obtaining it separately. Everything else builds and tests without it. The
+older editions are on Kaggle in the same series (`players_15.csv` … `players_23.csv`), and their
+column names differ; `-inspect` is what tells you how.
 
 ## Architecture
 
@@ -349,7 +352,7 @@ few simulated seasons.
     literal year back into any of them is the failure this invariant exists to prevent;
     `TestCareerStartsInItsEdition` checks all of it, including that nobody starts out of contract.
 
-    Two things follow from it.
+    Four things follow from it.
 
     - **`assets` discovers editions, it does not list them.** Files are named `world_YYYY.dat` and
       `Editions()` parses the year out of the name; `Load(year)` then checks the name and the
@@ -360,6 +363,43 @@ few simulated seasons.
       `store.Path` names a save file with, so that two careers at the same club in different eras
       are two files and one career stays one file across a decade of rollovers.
       `TestStartYearOutlivesTheSeason` and `TestPathNamesTheCareer` guard the pair.
+    - **A division an edition did not license is dropped, not left empty.** Every entry in the
+      importer's `wanted` is created before a single player is read, so an edition shipping no
+      Serie B would leave a league with no clubs and `season.Generate` would build a fixture list
+      for nobody. `dropEmptyLeagues` removes them and renumbers the survivors — IDs are dense
+      (invariant 4), so every club's `LeagueID` is remapped with them. This is also why the club
+      picker reads `league.ID` rather than assuming it is the cursor plus one.
+    - **The dataset's column names are not stable, so the importer reads both spellings.**
+      `sofifa_id` became `player_id`, `defending_marking` gained `_awareness`, the `team_` prefix
+      became `club_`, and the oldest files carry no numeric `league_id` at all — only a name, in
+      sofifa's own wording ("Spain Primera Division"). The `aliases` table and each spec's
+      `SrcNames` are where those live, and `-inspect` prints what a file offers so that a new
+      edition costs a line rather than a debugging session. An unrecognised division must fail the
+      import loudly, never import nothing quietly — `TestUnknownDivisionNameIsReported`.
+
+18. **Money is era-scaled at import, because only half of it comes from the dataset.** Wages and
+    player values are in the CSV and are already correct for their season. `League.PrizeMoney` in
+    the importer's `wanted` is not: it is today's broadcast deal, and paying a 2015 squad out of a
+    2026 television pot makes every club far richer than it was. `revenueIndex` in
+    `cmd/importer/main.go` is one factor per year that scales all thirteen divisions together.
+
+    Together, not individually, and that is the load-bearing part: invariant 14 rests on revenue
+    being distributed as unevenly as wages are, which is a property of the *spread* between leagues
+    rather than of the total. Scaling them by one number moves the total and leaves the spread
+    alone. Giving each division its own per-year figure would need 156 researched numbers and would
+    put that spread at risk for a gain nothing yet measures.
+
+    **The figures in `revenueIndex` are estimates and have never been checked against real data.**
+    `TestOlderEditionsStaySolvent` is written to settle them — it plays a season in the oldest
+    embedded edition and fails in both directions, too many clubs in the red or a giant profiting
+    more than it earned — but it skips while only one edition is embedded, which is the state of
+    the repository. Anyone importing a real old CSV should expect to tune the index against it, and
+    should not read the test's silence as approval.
+
+    A caution learned the expensive way: **synthetic player data cannot validate this.** A
+    generated dataset has a far flatter wage and value spread than a real one, so it puts clubs of
+    every era into the red regardless of the index — a fabricated 2024 edition came out *worse*
+    than a fabricated 2016 one. The failure looks exactly like a mis-set index and is not one.
 
 ### Calibration is a test, not a comment
 
