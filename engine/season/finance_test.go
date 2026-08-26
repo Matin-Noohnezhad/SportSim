@@ -170,7 +170,9 @@ func TestCommercialCarriesTheGiants(t *testing.T) {
 //
 // Budgets used to be half of whatever had piled up in the bank, so any drift in
 // the books eventually handed every club unlimited buying power. What a club can
-// spend has to follow what it earns; the balance is only the ceiling.
+// spend still has to follow what it earns: savings add to it, but only up to a
+// bound set by the club's own revenue, so no amount of hoarding turns a small
+// club into a giant.
 func TestTransferBudgetComesFromRevenue(t *testing.T) {
 	w := leagueOf(2)
 	w.Leagues[0].PrizeMoney = 50_000_000
@@ -178,14 +180,14 @@ func TestTransferBudgetComesFromRevenue(t *testing.T) {
 	c.Reputation, c.StadiumCap = 80, 50_000
 	c.TicketPrice = model.DefaultTicketPrice(c.Reputation)
 
-	// Flush with cash: the budget is capped by revenue, not by the balance.
+	// Flush with cash: the budget is bounded by revenue, not by the balance.
 	c.Balance = 10_000_000_000
 	rich := TransferBudget(w, c)
-	if rich >= c.Balance {
+	if rich >= c.Balance/4 {
 		t.Errorf("a club with %d in the bank may spend %d", c.Balance, rich)
 	}
-	if rich > Revenue(w, c) {
-		t.Errorf("budget %d exceeds a season's revenue of %d", rich, Revenue(w, c))
+	if ceiling := int64(float64(Revenue(w, c)) * (transferBudgetShare + warChestCap)); rich > ceiling {
+		t.Errorf("budget %d exceeds %d, everything a season's revenue can justify", rich, ceiling)
 	}
 
 	// Short of cash: the balance is the ceiling.
@@ -198,5 +200,42 @@ func TestTransferBudgetComesFromRevenue(t *testing.T) {
 	c.Balance = -5_000_000
 	if got := TransferBudget(w, c); got != 0 {
 		t.Errorf("an overdrawn club may spend %d", got)
+	}
+}
+
+// TestSavingsAreSpendable is the other half of that bargain, and the reason the
+// war chest exists at all: a club that banks a season's profit must be able to
+// spend it the following summer.
+//
+// While the budget was a flat share of revenue, a career of careful trading
+// changed nothing — the money accumulated in the bank and the board offered the
+// same purse every August, which reads to a manager as their thrift being
+// ignored.
+func TestSavingsAreSpendable(t *testing.T) {
+	w := leagueOf(2)
+	w.Leagues[0].PrizeMoney = 50_000_000
+	c := &w.Clubs[0]
+	c.Reputation, c.StadiumCap = 80, 50_000
+	c.TicketPrice = model.DefaultTicketPrice(c.Reputation)
+	revenue := Revenue(w, c)
+
+	// Living hand to mouth: the working capital a club runs on is not a war chest.
+	c.Balance = int64(float64(revenue) * workingCapitalShare)
+	lean := TransferBudget(w, c)
+	if want := int64(float64(revenue) * transferBudgetShare); lean != want {
+		t.Errorf("a club with no savings may spend %d, want its revenue share of %d", lean, want)
+	}
+
+	// A season of it put by, and the budget has to move with it.
+	c.Balance += revenue
+	saved := TransferBudget(w, c)
+	if saved <= lean {
+		t.Errorf("banking a season's revenue moved the budget from %d to %d", lean, saved)
+	}
+
+	// Twice as much saved buys more again, until the cap bites.
+	c.Balance += revenue
+	if more := TransferBudget(w, c); more <= saved {
+		t.Errorf("banking a second season moved the budget from %d to %d", saved, more)
 	}
 }

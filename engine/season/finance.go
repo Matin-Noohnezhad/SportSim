@@ -66,9 +66,29 @@ const (
 	// transferBudgetShare is how much of a season's revenue a club will commit to
 	// fees. Budgets are set from revenue rather than from the bank balance so
 	// that money piling up over a long career cannot quietly turn into unlimited
-	// buying power — a club spends against what it earns, and the balance only
-	// caps it. See TransferBudget.
+	// buying power — a club spends against what it earns. See TransferBudget.
 	transferBudgetShare = 0.45
+
+	// What a club will do with its savings, on top of that share.
+	//
+	// Revenue alone is not the whole answer: a club banks what it does not spend,
+	// and with the budget deaf to the balance that money did nothing at all. Six
+	// seasons in, Barcelona sit on €1.5bn and are still told they have €324m to
+	// spend, which is the complaint every long career eventually produces — and
+	// it is wrong in football's own terms too, since a war chest is exactly what
+	// a season of thrift buys you.
+	//
+	// So a club first holds workingCapitalShare of a season's revenue back as the
+	// money it runs on, and puts warChestShare of what is left over into the
+	// budget. The addition is capped at warChestCap of revenue, for the reason
+	// budgets were cut loose from the balance in the first place: the books drift
+	// upwards across a long career, and an unbounded slice of the bank would
+	// eventually hand every club in the world the same bottomless purse and
+	// flatten the market. Sizing the cap against the club's own revenue keeps the
+	// hierarchy intact — savings let a mid-table club buy well, never buy anybody.
+	workingCapitalShare = 0.50
+	warChestShare       = 0.35
+	warChestCap         = 1.00
 )
 
 // What a continental campaign is worth, following the shape of UEFA's own
@@ -262,17 +282,25 @@ func CommercialIncome(c *model.Club) int64 {
 }
 
 // TransferBudget is what a club will commit to fees over a season: a share of
-// what it earns, and never more than it actually has in the bank.
+// what it earns, plus a bounded slice of the savings it has beyond the money it
+// runs on, and never more than it actually has in the bank.
 //
-// Taking it from revenue rather than from the balance is deliberate. Budgets
-// used to be half of whatever had accumulated, so a long career with any drift
-// at all in the books ended with every club able to buy anybody. What a club can
-// spend should follow what it earns; the balance is the ceiling, not the source.
+// The revenue share is the source and the war chest is the supplement, not the
+// other way round. Budgets used to be half of whatever had accumulated, so a
+// long career with any drift at all in the books ended with every club able to
+// buy anybody; a budget deaf to the balance was the cure and went too far the
+// other way, leaving a decade of thrift worth nothing. Capping the war chest
+// against the club's own revenue is what holds both ends: a season's saving is
+// spendable, an era of it still cannot buy a club a squad it could never earn.
 func TransferBudget(w *model.World, c *model.Club) int64 {
 	if c == nil {
 		return 0
 	}
-	budget := int64(float64(Revenue(w, c)) * transferBudgetShare)
+	revenue := float64(Revenue(w, c))
+	budget := int64(revenue * transferBudgetShare)
+	if spare := float64(c.Balance) - revenue*workingCapitalShare; spare > 0 {
+		budget += int64(math.Min(spare*warChestShare, revenue*warChestCap))
+	}
 	if c.Balance < budget {
 		budget = c.Balance
 	}

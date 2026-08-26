@@ -290,11 +290,27 @@ few simulated seasons.
       would give thirty-two clubs a large income that nothing spends against, which is the same
       drift that budgets-from-the-balance produced. `TestEuropeanMoneyIsEarned` guards it.
 
-    **Transfer budgets come from revenue, never from the balance** (`season.TransferBudget`, used
-    by `rebalanceBudgets`). All spending is gated on `Club.TransferBudget` — `transfer.CanAfford`
-    never looks at `Balance` — so while the budget was half of whatever had accumulated, any
-    drift in the books eventually handed every club unlimited buying power. Taking it from
-    revenue with the balance as a ceiling is what makes the remaining slow drift harmless.
+    **Transfer budgets are led by revenue and topped up by savings, and the top-up is bounded**
+    (`season.TransferBudget`, used by `rebalanceBudgets`). All spending is gated on
+    `Club.TransferBudget` — `transfer.CanAfford` never looks at `Balance` — so while the budget
+    was half of whatever had accumulated, any drift in the books eventually handed every club
+    unlimited buying power. Cutting it loose from the balance entirely fixed that and went too
+    far the other way: the world banks around €4bn a season, so six seasons in Barcelona sit on
+    €1.5bn and were still offered €324m, and a career of careful trading changed nothing a
+    manager could see. The settlement is a war chest — a club holds `workingCapitalShare` of a
+    season's revenue back as the money it runs on and puts `warChestShare` of the rest into the
+    budget, capped at `warChestCap` of revenue, with the balance still the ceiling. **The cap is
+    the load-bearing part**: it is sized against the club's *own* revenue, so the drift cannot
+    converge every club on a bottomless purse and flatten the market's hierarchy.
+    `TestTransferBudgetComesFromRevenue` guards the bound and `TestSavingsAreSpendable` guards
+    the top-up; changing one without the other is how this drifts back to a flat share.
+
+    None of this touches the drift itself, and the drift is real rather than slow: the world's
+    money grows about 30% of its starting total every season, because revenue exceeds wages plus
+    `runningCostShare` for nearly every club. Transfers are zero-sum between clubs, so spending
+    more of it does not slow the growth — only the flows in `settleWeek` and `payPrizeMoney`
+    can. Anyone tempted to close it should expect a calibration job, not a constant: the giants'
+    solvency problem in this invariant was three failed attempts at exactly that.
 
     `TestPrizeMoneyPaidOnce`, `TestPrizeMoneyFollowsTheAudience`, `TestCommercialCarriesTheGiants`,
     `TestRunningCostsScaleWithRevenue`, `TestTransferBudgetComesFromRevenue` and the money checks
