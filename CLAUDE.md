@@ -414,12 +414,13 @@ few simulated seasons.
     alone. Giving each division its own per-year figure would need 156 researched numbers and would
     put that spread at risk for a gain nothing yet measures.
 
-    **The figures in `revenueIndex` are estimates and have never been checked against real data.**
-    `TestOlderEditionsStaySolvent` is written to settle them — it plays a season in the oldest
-    embedded edition and fails in both directions, too many clubs in the red or a giant profiting
-    more than it earned — but it skips while only one edition is embedded, which is the state of
-    the repository. Anyone importing a real old CSV should expect to tune the index against it, and
-    should not read the test's silence as approval.
+    **The figures are estimates, and only the oldest of them has been checked.**
+    `TestOlderEditionsStaySolvent` is what settles them: it plays a season in the oldest embedded
+    edition and fails in both directions, too many clubs in the red or a giant profiting beyond
+    what it earned. It runs for real now that the repository ships 2014/15 to 2022/23, and passes
+    — 32 of 287 clubs in the red after a season, the worst of them €11m down. The years between
+    rest on the index being smooth from one end to the other, which nothing has tested; anyone
+    who moves a middle year should point the test at it rather than trust the endpoints.
 
     A caution learned the expensive way: **synthetic player data cannot validate this.** A
     generated dataset has a far flatter wage and value spread than a real one, so it puts clubs of
