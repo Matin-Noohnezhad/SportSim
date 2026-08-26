@@ -2,7 +2,10 @@
 // binary database. It runs once at build time; the resulting asset is embedded
 // in the game binary, so players never need the CSV or a network connection.
 //
-//	go run ./cmd/importer -in data/players.csv -out assets/world.dat
+// One run produces one edition — one season's squads, ratings, values and
+// wages — and the game can hold as many as have been imported:
+//
+//	go run ./cmd/importer -in data/players.csv -year 2026
 package main
 
 import (
@@ -99,10 +102,19 @@ var attrCols = [model.NumAttr]string{
 
 func main() {
 	in := flag.String("in", "data/players.csv", "source EA FC player CSV")
-	out := flag.String("out", "assets/world.dat", "destination packed database")
+	out := flag.String("out", "", "destination packed database (default assets/world_<year>.dat)")
+	year := flag.Int("year", 0, "the season this edition starts, e.g. 2016 for 2016/17")
 	flag.Parse()
 
-	d, err := build(*in)
+	if *year == 0 {
+		fmt.Fprintln(os.Stderr, "import failed: -year is required; the CSV does not say which season it holds")
+		os.Exit(1)
+	}
+	if *out == "" {
+		*out = fmt.Sprintf("assets/world_%d.dat", *year)
+	}
+
+	d, err := build(*in, *year)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "import failed:", err)
 		os.Exit(1)
@@ -121,13 +133,13 @@ func main() {
 
 	st, _ := f.Stat()
 	fmt.Printf("wrote %s\n", *out)
-	fmt.Printf("  %d leagues, %d clubs, %d players, %d nations\n",
-		len(d.Leagues), len(d.Clubs), len(d.Players), len(d.Nations))
+	fmt.Printf("  %s season, %d leagues, %d clubs, %d players, %d nations\n",
+		model.SeasonLabel(d.Year), len(d.Leagues), len(d.Clubs), len(d.Players), len(d.Nations))
 	fmt.Printf("  %.1f KB packed (%.1f bytes/player)\n",
 		float64(st.Size())/1024, float64(st.Size())/float64(len(d.Players)))
 }
 
-func build(path string) (*pack.Data, error) {
+func build(path string, year int) (*pack.Data, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -265,7 +277,7 @@ func build(path string) (*pack.Data, error) {
 			Jersey:   uint8(clamp(atoiF(get("club_jersey_number")), 0, 99)),
 		}
 
-		y, m, dd := parseDOB(get("dob"), atoiF(get("age")))
+		y, m, dd := parseDOB(get("dob"), atoiF(get("age")), year)
 		p.BirthYear, p.BirthMonth, p.BirthDay = uint16(y), uint8(m), uint8(dd)
 
 		for i := 0; i < model.NumAttr; i++ {
@@ -297,12 +309,14 @@ func build(path string) (*pack.Data, error) {
 		p.ValueEUR = uint32(clamp(atoiF(get("value_eur")), 0, math.MaxInt32))
 		p.WageEUR = uint32(clamp(atoiF(get("wage_eur")), 0, math.MaxInt32))
 		if p.ValueEUR == 0 {
-			p.ValueEUR = uint32(estimateValue(ca, p.Potential, ageFrom(y, m, dd)))
+			p.ValueEUR = uint32(estimateValue(ca, p.Potential, ageFrom(y, m, dd, year)))
 		}
 		if p.WageEUR == 0 {
 			p.WageEUR = uint32(clamp(int(float64(p.ValueEUR)/260), 500, math.MaxInt32))
 		}
-		p.ContractUntil = uint16(clamp(atoiF(get("club_contract_valid_until_year")), 2026, 2040))
+		// A contract cannot already have expired in the season being imported, and
+		// nobody signs for fourteen years.
+		p.ContractUntil = uint16(clamp(atoiF(get("club_contract_valid_until_year")), year, year+14))
 
 		d.Players = append(d.Players, p)
 		clubOverall[cid] = append(clubOverall[cid], int(math.Round(ca)))
@@ -313,6 +327,7 @@ func build(path string) (*pack.Data, error) {
 	}
 
 	finaliseClubs(d, clubOverall, leagueOfClub, specByID)
+	d.Year = year
 	return d, nil
 }
 
@@ -437,8 +452,10 @@ func parseWorkRate(s string) (atk, def uint8) {
 }
 
 // parseDOB reads an ISO date, falling back to a synthetic birthday derived from
-// the age column when the dataset omits it.
-func parseDOB(s string, age int) (y, m, d int) {
+// the age column when the dataset omits it. The age is only meaningful against
+// the season the edition was published for, which is why year is passed in
+// rather than being a constant.
+func parseDOB(s string, age, year int) (y, m, d int) {
 	if len(s) >= 10 {
 		y, _ = strconv.Atoi(s[0:4])
 		m, _ = strconv.Atoi(s[5:7])
@@ -450,11 +467,11 @@ func parseDOB(s string, age int) (y, m, d int) {
 	if age <= 0 {
 		age = 24
 	}
-	return 2026 - age, 1, 1
+	return year - age, 1, 1
 }
 
-func ageFrom(y, m, d int) int {
-	a := 2026 - y
+func ageFrom(y, m, d, year int) int {
+	a := year - y
 	if m > 7 {
 		a--
 	}

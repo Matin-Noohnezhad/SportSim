@@ -21,10 +21,18 @@ import (
 
 var magic = [4]byte{'S', 'P', 'S', 'M'}
 
-const version uint16 = 1
+// version 2 put the edition's year in the header. A version-1 file does not say
+// which season it holds, and the year is no longer a constant anywhere in the
+// game, so there is nothing sensible to assume on its behalf.
+const version uint16 = 2
 
-// Data is the decoded static database.
+// Data is the decoded static database for one edition of the source dataset.
 type Data struct {
+	// Year is the season the edition starts: 2016 means the 2016/17 campaign.
+	// It travels with the data rather than being fixed in code, because the
+	// squads, values and wages in the file are only correct for that season.
+	Year int
+
 	Nations []model.Nation
 	Leagues []model.League
 	Clubs   []model.Club
@@ -186,6 +194,7 @@ func Encode(out io.Writer, d *Data) error {
 	var head bytes.Buffer
 	head.Write(magic[:])
 	binary.Write(&head, binary.LittleEndian, version)
+	binary.Write(&head, binary.LittleEndian, uint16(d.Year))
 	binary.Write(&head, binary.LittleEndian, uint32(len(w.strings)))
 	for _, s := range w.strings {
 		binary.Write(&head, binary.LittleEndian, uint16(len(s)))
@@ -226,6 +235,7 @@ func Decode(in io.Reader) (*Data, error) {
 	if v := r.u16(); v != version {
 		return nil, fmt.Errorf("pack: unsupported version %d (want %d)", v, version)
 	}
+	year := int(r.u16())
 	nStr := r.u32()
 	if r.err != nil {
 		return nil, r.err
@@ -239,7 +249,7 @@ func Decode(in io.Reader) (*Data, error) {
 		}
 	}
 
-	d := &Data{}
+	d := &Data{Year: year}
 
 	d.Nations = make([]model.Nation, r.u32())
 	for i := range d.Nations {

@@ -15,7 +15,7 @@ import (
 // simply calls each one catches the out-of-range panics that would otherwise
 // only show up mid-career.
 func TestScreensRender(t *testing.T) {
-	g, err := game.New("Tester", 1, 7)
+	g, err := game.New("Tester", 1, game.LatestEdition(), 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestScreensRender(t *testing.T) {
 // TestKeyNavigation drives the model through its key handlers the way a player
 // would, checking that navigation never panics and that actions land.
 func TestKeyNavigation(t *testing.T) {
-	g, _ := game.New("Tester", 1, 11)
+	g, _ := game.New("Tester", 1, game.LatestEdition(), 11)
 	g.AutoSelect()
 	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, mk: newMarket()}
 	m.tableLeague = g.Club().LeagueID
@@ -121,7 +121,7 @@ func TestKeyNavigation(t *testing.T) {
 // game out. It is a smoke test over the whole live path, from the key handlers
 // down to the engine, and it checks the day only moves on once the match is over.
 func TestTouchlineControl(t *testing.T) {
-	g, _ := game.New("Tester", 1, 23)
+	g, _ := game.New("Tester", 1, game.LatestEdition(), 23)
 	g.AutoSelect()
 	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, liveMode: true, mk: newMarket()}
 	m.tableLeague = g.Club().LeagueID
@@ -256,7 +256,7 @@ func TestTouchlineControl(t *testing.T) {
 // the fixture list, the way a manager looking back over a result would: press f
 // for the calendar, move up to a match already played, and open it.
 func TestFixtureReportNavigation(t *testing.T) {
-	g, _ := game.New("Tester", 1, 31)
+	g, _ := game.New("Tester", 1, game.LatestEdition(), 31)
 	g.AutoSelect()
 	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, liveMode: false, mk: newMarket()}
 	m.tableLeague = g.Club().LeagueID
@@ -343,10 +343,19 @@ func keyType(k string) tea.KeyType {
 	return tea.KeyEsc
 }
 
-// TestNewGameFlow drives the club picker the way a player first meets it:
-// type a name, choose a division, choose a club, and land in a live career.
+// TestNewGameFlow drives the picker the way a player first meets it: type a
+// name, choose a season if there is more than one, choose a division, choose a
+// club, and land in a live career.
+//
+// It builds the model through New rather than by hand, because where the flow
+// opens depends on how many editions are embedded and that is exactly the thing
+// under test.
 func TestNewGameFlow(t *testing.T) {
-	m := &Model{screen: ScreenNewGame, width: 110, height: 36, swapFrom: -1, mk: newMarket()}
+	m, err := New("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 110, 36
 
 	send := func(msgs ...tea.KeyMsg) {
 		t.Helper()
@@ -369,10 +378,18 @@ func TestNewGameFlow(t *testing.T) {
 		t.Fatalf("name input = %q, want %q", m.nameInput, "Matin")
 	}
 
+	year := m.startYear()
+	if m.pickStage == stageYear {
+		send(tea.KeyMsg{Type: tea.KeyEnter}) // keep the season the picker opens on
+		if m.pickStage != stageLeague {
+			t.Fatal("did not advance to division selection")
+		}
+	}
+
 	// Move down two divisions, then pick the third club in it.
 	send(tea.KeyMsg{Type: tea.KeyDown}, tea.KeyMsg{Type: tea.KeyDown})
 	send(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.pickStage != 1 {
+	if m.pickStage != stageClub {
 		t.Fatal("did not advance to club selection")
 	}
 	send(tea.KeyMsg{Type: tea.KeyDown}, tea.KeyMsg{Type: tea.KeyDown})
@@ -386,6 +403,15 @@ func TestNewGameFlow(t *testing.T) {
 	}
 	if m.g.World.ManagerName != "Matin" {
 		t.Errorf("manager name = %q", m.g.World.ManagerName)
+	}
+	// The career must start in the season that was chosen, not in whatever year
+	// the code was written in.
+	if m.g.World.StartYear != year || m.g.World.SeasonYear != year {
+		t.Errorf("career started in %d/%d, want %d",
+			m.g.World.StartYear, m.g.World.SeasonYear, year)
+	}
+	if got := m.g.World.Date; got.Year() != year || got.Month() != 7 {
+		t.Errorf("career opens on %s, want July %d", got.Format(), year)
 	}
 	c := m.g.Club()
 	if c == nil || !c.IsHuman {
@@ -415,7 +441,7 @@ func TestNewGameFlow(t *testing.T) {
 // halves of that, since getting it wrong makes the interface unusable in one
 // mode or unreachable in the other.
 func TestTransferMarket(t *testing.T) {
-	g, _ := game.New("Tester", 1, 23)
+	g, _ := game.New("Tester", 1, game.LatestEdition(), 23)
 	g.AutoSelect()
 	m := &Model{g: g, screen: ScreenHome, width: 130, height: 40, swapFrom: -1, mk: newMarket()}
 	m.tableLeague = g.Club().LeagueID
@@ -614,7 +640,7 @@ func transferHaggleFloor(ask int64) int64 { return ask * 92 / 100 }
 // that leaving takes a deliberate move onto Yes and then enter — pressing q
 // twice, or enter straight away, must keep the manager in their job.
 func TestQuitIsConfirmed(t *testing.T) {
-	g, _ := game.New("Tester", 1, 77)
+	g, _ := game.New("Tester", 1, game.LatestEdition(), 77)
 	m := &Model{g: g, screen: ScreenHome, width: 120, height: 40, swapFrom: -1, mk: newMarket()}
 
 	press := func(k string) tea.Cmd {

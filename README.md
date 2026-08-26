@@ -37,7 +37,7 @@ the group stage in September to a final at the end of May.
 | | |
 |---|---|
 | Binary | 6.4 MB, single file, no install |
-| Game database | 446 KB, embedded in the binary |
+| Game database | 442 KB per season, embedded in the binary |
 | Memory in play | ~5 MB |
 | Startup | 20 ms |
 | Save file | ~850 KB, a season of match reports included |
@@ -58,10 +58,15 @@ sportsim              start a new career
 sportsim -continue    resume the most recent save
 sportsim -load FILE   resume a specific save
 sportsim -list        list saved careers
+sportsim -editions    list the seasons a career can start in
 ```
 
-Saves live in `~/.sportsim/saves`. There is no autosave, so `q` on the home
-screen asks before it closes the game. The prompt opens on **No** — leaving takes
+Saves live in `~/.sportsim/saves`, named for the club and the season the career
+began: `Real_Madrid_2016.sav`. The starting season is part of the name because
+it is part of the career — running Real Madrid from 2016 and again from 2020 are
+two different jobs, and they get two different files.
+
+There is no autosave, so `q` on the home screen asks before it closes the game. The prompt opens on **No** — leaving takes
 `→` and then `enter`, so the key that means "go back" on every other screen
 cannot end a career by being pressed twice. `ctrl+c` still exits immediately.
 
@@ -451,7 +456,7 @@ engine/transfer   asking prices, negotiation, AI market
 engine/rng        deterministic seeded random source
 
 data/pack         compact binary database format
-assets/           embedded database (world.dat)
+assets/           embedded databases (world_2026.dat, one per season)
 store/            save and load
 ui/tui            terminal frontend  ← one of potentially several
 ```
@@ -460,20 +465,45 @@ Go was chosen for the single static binary, the low memory footprint, and
 cross-compilation: `GOOS=windows go build ./cmd/sportsim` produces a Windows
 executable with no other changes.
 
-## Rebuilding the database
+## Choosing a season
 
-`assets/world.dat` is committed, so this is only needed to refresh the player
-data:
+A career starts in whichever season the game has a database for. `world_2026.dat`
+ships with the repository; the same player data exists for every edition back to
+2015, so importing more of them adds a step to the new-game screen:
 
-```sh
-go run ./cmd/importer -in data/players.csv -out assets/world.dat
+```
+  CHOOSE A SEASON
+   2016/17    squads as they stood that summer   ... clubs   ... players
+   2026/27    squads as they stood that summer   252 clubs   6424 players
 ```
 
-The importer reads an EA FC player CSV and writes the packed format: a
-deduplicated string table plus fixed-width records, 71 bytes per player. Club
-reputation, stadium capacity and finances are not in the source data and are
-derived from squad strength, normalised against the range the dataset actually
-spans.
+The season sets the squads, the ratings, the values, the wages and the calendar.
+Everything after kickoff is simulated, so a career beginning in 2016 does not
+replay what really happened next — it is a different starting position, not a
+recording.
+
+Only one season is embedded by default, and then the step is skipped entirely.
+
+## Rebuilding the database
+
+`assets/world_2026.dat` is committed, so this is only needed to refresh the
+player data or to add another season. One run makes one season:
+
+```sh
+go run ./cmd/importer -in data/players.csv -year 2026
+```
+
+The output defaults to `assets/world_<year>.dat`, which is where the game looks
+for it — nothing else needs changing to add a season.
+
+`-year` is required. The CSV does not say which edition it is, and the year sets
+the calendar, every player's age and every contract's expiry, so guessing it
+would date the whole world silently and wrongly.
+
+The importer reads the CSV and writes the packed format: a deduplicated string
+table plus fixed-width records, 71 bytes per player. Club reputation, stadium
+capacity and finances are not in the source data and are derived from squad
+strength, normalised against the range the dataset actually spans.
 
 ## Tests
 
@@ -502,6 +532,11 @@ go test ./...
 | `TestRoundRobinComplete` | every pair still meets twice, once at each ground |
 | `TestMultiSeason` | three seasons leave league sizes, squads, ages and the money intact |
 | `TestSaveRoundTrip` | a save reloads and continues on the same random stream |
+| `TestEditionsAgreeWithTheirFiles` | every embedded season decodes, and its file name and header agree |
+| `TestCareerStartsInItsEdition` | the calendar comes from the database, and nobody starts out of contract |
+| `TestEveryEditionFieldsASeason` | every season embedded can actually be played |
+| `TestStartYearOutlivesTheSeason` | a career's starting year survives the rollovers that follow it |
+| `TestPathNamesTheCareer` | a save is named for its club and its era, and does not move each summer |
 | `TestSeasonStats` | the charts agree with the fixtures they were compiled from |
 | `TestMatchReport` | a match reopened from the fixture list reads as it did at full time |
 | `TestFixtureReportNavigation` | the fixture list opens a played match by keypress |

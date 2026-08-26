@@ -15,7 +15,7 @@ import (
 // not asked to play that way in November. What the club takes into the next
 // fixture is the selection made on the tactics screen, untouched.
 func TestTouchlineChangesAreForOneMatch(t *testing.T) {
-	g, err := game.New("Gaffer", 1, 4242)
+	g, err := game.New("Gaffer", 1, game.LatestEdition(), 4242)
 	if err != nil {
 		t.Fatal(err)
 	}

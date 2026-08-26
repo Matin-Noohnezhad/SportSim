@@ -31,11 +31,14 @@ go test ./ui/tui -run TestScreensRender -v
 go test ./... -count=1                         # defeat the cache after touching tuning constants
 ```
 
-Rebuilding the packed database (only when refreshing player data; `assets/world.dat` is committed):
+Rebuilding the packed database (only when refreshing player data or adding a season;
+`assets/world_2026.dat` is committed):
 
 ```sh
-go run ./cmd/importer -in data/players.csv -out assets/world.dat
+go run ./cmd/importer -in data/players.csv -year 2026   # -> assets/world_2026.dat
 ```
+
+`-year` is required and there is deliberately no default — see invariant 17.
 
 `data/players.csv` is gitignored (11 MB EA FC export) — it is not in a clean clone, so the importer
 cannot be run without obtaining it separately. Everything else builds and tests without it.
@@ -112,7 +115,11 @@ cmd/sportsim ─▶ ui/tui ─▶ game ─▶ engine/* ─▶ engine/model
   `ScreenStats` are two views of one division and share `keyTable`, with `tab` between them; the
   charts sit two abreast on a wide terminal and stack on a narrow one, which is why `statRows` is
   told how many rows of them there will be.
-- **`store`** gob-encodes and gzips a `snapshot` of world + schedule + inbox + RNG state.
+- **`assets`** embeds one packed database per season (`world_YYYY.dat`) and discovers them by
+  filename: `Editions()`, `Latest()`, `Load(year)`. Adding a season is importing a file into that
+  directory — no code names any year.
+- **`store`** gob-encodes and gzips a `snapshot` of world + schedule + inbox + RNG state, and
+  `store.Path` is the one place a save file is named (club plus `World.StartYear`).
 
 ### Invariants that hold the design together
 
@@ -329,6 +336,30 @@ few simulated seasons.
 
     `TestEuropeanSeason` plays a full campaign and checks all of it: three competitions from the
     draw to a trophy, every tie settled, every round halving the field, and nobody double-booked.
+
+17. **A career's start year comes from the pack, never from a literal.** A game database is one
+    edition of the source dataset — one season's squads, ratings, values and wages — and the year
+    it holds travels with it as `pack.Data.Year`. `game.NewWorld` reads that and sets
+    `World.SeasonYear`, `World.StartYear` and `World.Date` from it. There is no default and no
+    fallback: an edition started in the wrong year dates every player's age and every contract's
+    expiry silently, and the career simply plays out wrong.
+
+    The year used to be written down in four places — `game.NewWorld`, the contract clamp in the
+    importer, and both of `parseDOB`/`ageFrom`. All four now take it as a parameter. Putting a
+    literal year back into any of them is the failure this invariant exists to prevent;
+    `TestCareerStartsInItsEdition` checks all of it, including that nobody starts out of contract.
+
+    Two things follow from it.
+
+    - **`assets` discovers editions, it does not list them.** Files are named `world_YYYY.dat` and
+      `Editions()` parses the year out of the name; `Load(year)` then checks the name and the
+      header agree, because they are two statements of one fact. Adding a season is importing a
+      file into `assets/` — no code changes at all. This is invariant 7's reasoning applied to
+      seasons: the list is data.
+    - **`World.StartYear` never moves, `SeasonYear` does.** The start year is what
+      `store.Path` names a save file with, so that two careers at the same club in different eras
+      are two files and one career stays one file across a decade of rollovers.
+      `TestStartYearOutlivesTheSeason` and `TestPathNamesTheCareer` guard the pair.
 
 ### Calibration is a test, not a comment
 

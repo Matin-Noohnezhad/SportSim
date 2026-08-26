@@ -14,7 +14,7 @@ import (
 // is that they still agree, so a scoring chart can never disagree with the
 // results it was compiled from.
 func TestSeasonStats(t *testing.T) {
-	g, err := game.New("Statistician", 1, 4242)
+	g, err := game.New("Statistician", 1, game.LatestEdition(), 4242)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestSeasonStats(t *testing.T) {
 // with the ones that were always there. A tally that survives the summer would
 // show up as a striker on ninety goals two seasons in.
 func TestStatsResetEachSeason(t *testing.T) {
-	g, err := game.New("Rollover", 1, 77)
+	g, err := game.New("Rollover", 1, game.LatestEdition(), 77)
 	if err != nil {
 		t.Fatal(err)
 	}
