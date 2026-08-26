@@ -58,7 +58,18 @@ func csvHeader(old bool) []string {
 // with a squad each, written in either the current or the older spelling.
 func writeCSV(t *testing.T, old bool, leagues []*leagueSpec, leagueName func(*leagueSpec) string) string {
 	t.Helper()
+	return writeCSVVersions(t, old, leagues, leagueName, nil)
+}
+
+// writeCSVVersions writes the same dataset once per fifa_version, the way the
+// distributions that bundle every edition into one file do. A nil versions
+// slice writes no fifa_version column at all.
+func writeCSVVersions(t *testing.T, old bool, leagues []*leagueSpec, leagueName func(*leagueSpec) string, versions []int) string {
+	t.Helper()
 	head := csvHeader(old)
+	if versions != nil {
+		head = append([]string{"fifa_version"}, head...)
+	}
 	idx := make(map[string]int, len(head))
 	for i, h := range head {
 		idx[h] = i
@@ -84,44 +95,54 @@ func writeCSV(t *testing.T, old bool, leagues []*leagueSpec, leagueName func(*le
 		t.Fatal(err)
 	}
 
+	editions := versions
+	if editions == nil {
+		editions = []int{0}
+	}
+
 	pid := 1
-	for _, spec := range leagues {
-		for club := 1; club <= 4; club++ {
-			clubID := spec.SrcID*100 + club
-			for n := 0; n < 18; n++ {
-				row := make([]string, len(head))
-				for i := range row {
-					row[i] = "60"
+	for _, version := range editions {
+		for _, spec := range leagues {
+			for club := 1; club <= 4; club++ {
+				clubID := spec.SrcID*100 + club
+				for n := 0; n < 18; n++ {
+					row := make([]string, len(head))
+					for i := range row {
+						row[i] = "60"
+					}
+					set(row, "player_id", fmt.Sprint(pid))
+					set(row, "short_name", fmt.Sprintf("Player %d", pid))
+					set(row, "long_name", fmt.Sprintf("Player Number %d", pid))
+					set(row, "player_positions", "CM, CB")
+					set(row, "overall", "70")
+					set(row, "potential", "78")
+					set(row, "value_eur", "5000000")
+					set(row, "wage_eur", "20000")
+					set(row, "age", "25")
+					set(row, "dob", "1998-03-04")
+					set(row, "height_cm", "180")
+					set(row, "weight_kg", "75")
+					set(row, "club_team_id", fmt.Sprint(clubID))
+					set(row, "club_name", fmt.Sprintf("%s Club %d", spec.Code, club))
+					set(row, "league_id", fmt.Sprint(spec.SrcID))
+					set(row, "league_name", leagueName(spec))
+					set(row, "club_jersey_number", fmt.Sprint(n+1))
+					set(row, "club_contract_valid_until_year", "2018")
+					set(row, "club_loaned_from", "")
+					set(row, "nationality_name", spec.Country)
+					set(row, "preferred_foot", "Right")
+					set(row, "weak_foot", "3")
+					set(row, "skill_moves", "3")
+					set(row, "international_reputation", "1")
+					set(row, "work_rate", "Medium/Medium")
+					if versions != nil {
+						row[0] = fmt.Sprint(version)
+					}
+					if err := out.Write(row); err != nil {
+						t.Fatal(err)
+					}
+					pid++
 				}
-				set(row, "player_id", fmt.Sprint(pid))
-				set(row, "short_name", fmt.Sprintf("Player %d", pid))
-				set(row, "long_name", fmt.Sprintf("Player Number %d", pid))
-				set(row, "player_positions", "CM, CB")
-				set(row, "overall", "70")
-				set(row, "potential", "78")
-				set(row, "value_eur", "5000000")
-				set(row, "wage_eur", "20000")
-				set(row, "age", "25")
-				set(row, "dob", "1998-03-04")
-				set(row, "height_cm", "180")
-				set(row, "weight_kg", "75")
-				set(row, "club_team_id", fmt.Sprint(clubID))
-				set(row, "club_name", fmt.Sprintf("%s Club %d", spec.Code, club))
-				set(row, "league_id", fmt.Sprint(spec.SrcID))
-				set(row, "league_name", leagueName(spec))
-				set(row, "club_jersey_number", fmt.Sprint(n+1))
-				set(row, "club_contract_valid_until_year", "2018")
-				set(row, "club_loaned_from", "")
-				set(row, "nationality_name", spec.Country)
-				set(row, "preferred_foot", "Right")
-				set(row, "weak_foot", "3")
-				set(row, "skill_moves", "3")
-				set(row, "international_reputation", "1")
-				set(row, "work_rate", "Medium/Medium")
-				if err := out.Write(row); err != nil {
-					t.Fatal(err)
-				}
-				pid++
 			}
 		}
 	}
@@ -266,5 +287,58 @@ func TestUnknownDivisionNameIsReported(t *testing.T) {
 		t.Fatal("an unrecognised division name should fail the import, not empty it")
 	} else if !strings.Contains(err.Error(), "-inspect") {
 		t.Errorf("error should point at -inspect, got: %v", err)
+	}
+}
+
+// TestOneEditionIsTakenFromABundle guards the filter that keeps a file holding
+// nine seasons from becoming a world holding nine copies of every player.
+//
+// The distributions that bundle editions tag each row with fifa_version, and a
+// title is numbered for the year after the season it covers: FIFA 15 shipped in
+// September 2014 and holds the squads that played 2014/15. Reading the whole
+// file, or reading the wrong version, are both silent failures.
+func TestOneEditionIsTakenFromABundle(t *testing.T) {
+	pl := specFor(t, "Premier League")
+	byName := func(s *leagueSpec) string { return s.SrcNames[0] }
+	bundle := writeCSVVersions(t, false, []*leagueSpec{pl}, byName, []int{15, 16, 17})
+	single := writeCSV(t, false, []*leagueSpec{pl}, byName)
+
+	one, err := build(single, 2014)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := build(bundle, 2014)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Players) != len(one.Players) {
+		t.Errorf("importing 2014/15 out of a three-edition bundle gave %d players, want the %d of one edition",
+			len(got.Players), len(one.Players))
+	}
+	if got.Year != 2014 {
+		t.Errorf("pack year = %d, want 2014", got.Year)
+	}
+
+	// Every version in the bundle must be reachable, and none beyond it.
+	for _, year := range []int{2014, 2015, 2016} {
+		if _, err := build(bundle, year); err != nil {
+			t.Errorf("%d: %v", year, err)
+		}
+	}
+	if _, err := build(bundle, 2019); err == nil {
+		t.Error("a season the bundle does not hold should fail, not import nothing")
+	}
+}
+
+// TestFifaVersionMatchesItsSeason pins the off-by-one that would label every
+// edition a year late.
+func TestFifaVersionMatchesItsSeason(t *testing.T) {
+	for version, season := range map[int]int{15: 2014, 16: 2015, 23: 2022, 26: 2025} {
+		if got := fifaVersionFor(season); got != version {
+			t.Errorf("season %d maps to fifa_version %d, want %d", season, got, version)
+		}
+		if got := seasonForVersion(version); got != season {
+			t.Errorf("fifa_version %d maps to season %d, want %d", version, got, season)
+		}
 	}
 }

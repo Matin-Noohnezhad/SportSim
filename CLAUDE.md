@@ -352,7 +352,7 @@ few simulated seasons.
     literal year back into any of them is the failure this invariant exists to prevent;
     `TestCareerStartsInItsEdition` checks all of it, including that nobody starts out of contract.
 
-    Four things follow from it.
+    Five things follow from it.
 
     - **`assets` discovers editions, it does not list them.** Files are named `world_YYYY.dat` and
       `Editions()` parses the year out of the name; `Load(year)` then checks the name and the
@@ -369,6 +369,15 @@ few simulated seasons.
       for nobody. `dropEmptyLeagues` removes them and renumbers the survivors — IDs are dense
       (invariant 4), so every club's `LeagueID` is remapped with them. This is also why the club
       picker reads `league.ID` rather than assuming it is the cursor plus one.
+    - **A file may hold every edition at once, and only one may be read.** The tidied
+      distributions bundle FIFA 15 to 23 into a single CSV tagged with `fifa_version`;
+      importing all of it would put nine copies of every player into one world. `build`
+      filters on the version matching `-year` whenever the column is present.
+      `fifaVersionFor` is the conversion and it is off by one on purpose: a title ships in
+      the September of the season it covers and is numbered for the year after, so FIFA 15
+      holds 2014/15. Getting that backwards labels every edition a season late, which is
+      this invariant's failure wearing a different hat —
+      `TestOneEditionIsTakenFromABundle` and `TestFifaVersionMatchesItsSeason` guard it.
     - **The dataset's column names are not stable, so the importer reads both spellings.**
       `sofifa_id` became `player_id`, `defending_marking` gained `_awareness`, the `team_` prefix
       became `club_`, and the oldest files carry no numeric `league_id` at all — only a name, in

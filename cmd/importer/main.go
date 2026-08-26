@@ -9,7 +9,9 @@
 //	go run ./cmd/importer -in data/players_16.csv -year 2016
 //	go run ./cmd/importer -in data/players.csv    -year 2026
 //
-// The column names in the dataset have drifted across editions, so -inspect
+// Some distributions bundle every edition into one file, tagged by a
+// fifa_version column; the version matching -year is taken and the rest
+// skipped. The column names have also drifted across editions, so -inspect
 // reports what a file offers without writing anything:
 //
 //	go run ./cmd/importer -in data/players_16.csv -year 2016 -inspect
@@ -126,6 +128,20 @@ func eraScale(year int) float64 {
 	}
 	return revenueIndex[hi] * math.Pow(1.03, float64(year-hi))
 }
+
+// fifaVersionFor converts a season to the dataset's own edition numbering.
+//
+// A title ships in the September of the season it covers and is numbered for
+// the year after: FIFA 15 came out in September 2014 and holds the squads that
+// played 2014/15. Getting this backwards would label every edition one season
+// late, which is invariant 17's failure in a different disguise.
+//
+// This is a property of the dataset, not of the game — the same kind of fact as
+// the league ids in `wanted` — which is why it lives here and nowhere else.
+func fifaVersionFor(year int) int { return year - 1999 }
+
+// seasonForVersion is the inverse, used to report what a bundled file holds.
+func seasonForVersion(v int) int { return v + 1999 }
 
 // aliases maps the column name this importer asks for to the spellings older
 // editions of the dataset used. The scrape has been renaming columns since
@@ -371,6 +387,14 @@ func build(path string, year int) (*pack.Data, error) {
 
 	seen := make(map[int]bool) // dataset player_id, guards duplicate rows
 
+	// Some distributions bundle every edition into one file. Taking the whole of
+	// it would put nine seasons of the same player into one world, so only the
+	// edition being imported is read.
+	wantVersion := 0
+	if h.has("fifa_version") {
+		wantVersion = fifaVersionFor(year)
+	}
+
 	for {
 		rec, err := r.Read()
 		if err == io.EOF {
@@ -381,6 +405,10 @@ func build(path string, year int) (*pack.Data, error) {
 		}
 
 		get := func(name string) string { return h.field(rec, name) }
+
+		if wantVersion != 0 && atoiF(get("fifa_version")) != wantVersion {
+			continue
+		}
 
 		// Which division a player is in is given by number in recent editions and
 		// only by name in older ones, so accept either.
@@ -482,6 +510,10 @@ func build(path string, year int) (*pack.Data, error) {
 	}
 
 	if len(d.Players) == 0 {
+		if wantVersion != 0 {
+			return nil, fmt.Errorf("no players for the %s season (fifa_version %d); run with -inspect to see which editions this file holds",
+				model.SeasonLabel(year), wantVersion)
+		}
 		return nil, fmt.Errorf("no players matched the configured leagues; run with -inspect to see which divisions the CSV names")
 	}
 
@@ -650,8 +682,9 @@ func inspectCSV(path string) error {
 		}
 	}
 
-	// One pass over the rows: which divisions the file names, how many rows each
-	// has, and how many of them this importer would actually claim.
+	// One pass over the rows: which editions and divisions the file holds, how
+	// many rows each has, and how many of them this importer would claim.
+	versions := map[int]int{}
 	type tally struct {
 		name  string
 		rows  int
@@ -669,6 +702,9 @@ func inspectCSV(path string) error {
 			return fmt.Errorf("reading row: %w", err)
 		}
 		rows++
+		if h.has("fifa_version") {
+			versions[atoiF(h.field(rec, "fifa_version"))]++
+		}
 		name := h.field(rec, "league_name")
 		id := atoiF(h.field(rec, "league_id"))
 		key := name
@@ -699,6 +735,19 @@ func inspectCSV(path string) error {
 		keys = append(keys, k)
 	}
 	sort.Slice(keys, func(a, b int) bool { return seen[keys[a]].rows > seen[keys[b]].rows })
+
+	if len(versions) > 0 {
+		vs := make([]int, 0, len(versions))
+		for v := range versions {
+			vs = append(vs, v)
+		}
+		sort.Ints(vs)
+		fmt.Printf("\neditions bundled in this file (pick one with -year)\n")
+		for _, v := range vs {
+			fmt.Printf("  fifa_version %-3d %5d rows  -> -year %d (%s)\n",
+				v, versions[v], seasonForVersion(v), model.SeasonLabel(seasonForVersion(v)))
+		}
+	}
 
 	fmt.Printf("\ndivisions in %s\n", path)
 	for _, k := range keys {

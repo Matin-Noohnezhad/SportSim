@@ -36,8 +36,8 @@ the group stage in September to a final at the end of May.
 
 | | |
 |---|---|
-| Binary | 6.4 MB, single file, no install |
-| Game database | 442 KB per season, embedded in the binary |
+| Binary | 10.8 MB, single file, no install |
+| Game database | 4.9 MB, ten seasons embedded in the binary |
 | Memory in play | ~5 MB |
 | Startup | 20 ms |
 | Save file | ~850 KB, a season of match reports included |
@@ -467,13 +467,15 @@ executable with no other changes.
 
 ## Choosing a season
 
-A career starts in whichever season the game has a database for. `world_2026.dat`
-ships with the repository; the same player data exists for every edition back to
-2015, so importing more of them adds a step to the new-game screen:
+A career starts in whichever season the game has a database for. Ten ship with
+the repository — every season from 2014/15 to 2022/23, and the current one — so
+the new-game screen opens on the choice:
 
 ```
   CHOOSE A SEASON
-   2016/17    squads as they stood that summer   ... clubs   ... players
+   2014/15    squads as they stood that summer   287 clubs   7644 players
+   2015/16    squads as they stood that summer   286 clubs   7363 players
+   ...
    2026/27    squads as they stood that summer   252 clubs   6424 players
 ```
 
@@ -482,7 +484,10 @@ Everything after kickoff is simulated, so a career beginning in 2016 does not
 replay what really happened next — it is a different starting position, not a
 recording.
 
-Only one season is embedded by default, and then the step is skipped entirely.
+Start in 2014/15 and Cristiano Ronaldo is 29 and at Real Madrid; start in
+2022/23 and he is 37 and at Manchester United, with Messi at Paris Saint-Germain.
+
+A build embedding only one season skips the step entirely.
 
 ## Rebuilding the database
 
@@ -524,6 +529,20 @@ Run it first against any edition the game has not seen before: an unrecognised
 column or division name is the one failure a new file is likely to hit, and the
 fix is a line in `aliases` or in a division's `SrcNames`.
 
+Some distributions bundle every edition into one file, tagged by `fifa_version`.
+`-inspect` lists what such a file holds, and `-year` picks one out of it:
+
+```
+editions bundled in this file (pick one with -year)
+  fifa_version 15   16182 rows  -> -year 2014 (2014/15)
+  fifa_version 16   16679 rows  -> -year 2015 (2015/16)
+  ...
+```
+
+A title ships in the September of the season it covers and is numbered for the
+year after, so FIFA 15 holds the squads that played 2014/15 and is imported as
+`-year 2014`.
+
 The importer reads the CSV and writes the packed format: a deduplicated string
 table plus fixed-width records, 71 bytes per player. Club reputation, stadium
 capacity and finances are not in the source data and are derived from squad
@@ -564,6 +583,8 @@ go test ./...
 | `TestPathNamesTheCareer` | a save is named for its club and its era, and does not move each summer |
 | `TestOldColumnNamesStillImport` | an older edition's column names import identically to today's |
 | `TestUnlicensedDivisionsAreDropped` | a division an edition never had leaves no empty league behind |
+| `TestOneEditionIsTakenFromABundle` | a file holding nine seasons imports as one, not as nine copies |
+| `TestFifaVersionMatchesItsSeason` | FIFA 15 is the 2014/15 season, not the 2015/16 one |
 | `TestSeasonStats` | the charts agree with the fixtures they were compiled from |
 | `TestMatchReport` | a match reopened from the fixture list reads as it did at full time |
 | `TestFixtureReportNavigation` | the fixture list opens a played match by keypress |
