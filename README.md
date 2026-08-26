@@ -313,9 +313,13 @@ You cannot sell your way out of them. That is the trap after relegation: a wage
 bill that was comfortable in the top flight is not comfortable against a smaller
 television deal, and the overheads do not fall to meet it.
 
-Your transfer budget is a share of a season's revenue, capped by what is actually
-in the bank — so a rich season funds signings, but money hoarded over a long
-career does not turn into unlimited buying power.
+**Savings are spendable, and thrift compounds.** Your transfer budget is a share
+of a season's revenue plus a slice of the money you have banked beyond what the
+club runs on, and it can never exceed the balance. So a summer spent selling well
+and buying nothing is not wasted: the budget the board offers you next August has
+grown with the bank. What it cannot do is grow without limit — the savings a club
+can put to work are capped against its own revenue, so a decade of hoarding makes
+a mid-table club a good buyer, never a giant.
 
 ## Statistics
 
@@ -569,7 +573,8 @@ go test ./...
 | `TestPrizeMoneyFollowsTheAudience` | television money is weighted by market size, not shared flat |
 | `TestCommercialCarriesTheGiants` | sponsorship scales steeply enough to fund the biggest wage bills |
 | `TestRunningCostsScaleWithRevenue` | overheads follow what a club earns, not what it pays its players |
-| `TestTransferBudgetComesFromRevenue` | buying power comes from income, capped by the bank |
+| `TestTransferBudgetComesFromRevenue` | buying power comes from income, and no amount of hoarding outgrows it |
+| `TestSavingsAreSpendable` | a season banked is a season you can spend the following summer |
 | `TestEuropeanSeason` | all three competitions run from the draw to a trophy, and nobody plays twice in a day |
 | `TestEuropeanMoneyIsEarned` | continental prize money reaches the books through revenue, not beside it |
 | `TestVenueAlternation` | no club plays three league games running at the same ground |
