@@ -368,7 +368,7 @@ few simulated seasons.
     literal year back into any of them is the failure this invariant exists to prevent;
     `TestCareerStartsInItsEdition` checks all of it, including that nobody starts out of contract.
 
-    Four things follow from it.
+    Five things follow from it.
 
     - **`assets` discovers editions, it does not list them.** Files are named `world_YYYY.dat` and
       `Editions()` parses the year out of the name; `Load(year)` then checks the name and the
@@ -385,6 +385,15 @@ few simulated seasons.
       for nobody. `dropEmptyLeagues` removes them and renumbers the survivors — IDs are dense
       (invariant 4), so every club's `LeagueID` is remapped with them. This is also why the club
       picker reads `league.ID` rather than assuming it is the cursor plus one.
+    - **A file may hold every edition at once, and only one may be read.** The tidied
+      distributions bundle FIFA 15 to 23 into a single CSV tagged with `fifa_version`;
+      importing all of it would put nine copies of every player into one world. `build`
+      filters on the version matching `-year` whenever the column is present.
+      `fifaVersionFor` is the conversion and it is off by one on purpose: a title ships in
+      the September of the season it covers and is numbered for the year after, so FIFA 15
+      holds 2014/15. Getting that backwards labels every edition a season late, which is
+      this invariant's failure wearing a different hat —
+      `TestOneEditionIsTakenFromABundle` and `TestFifaVersionMatchesItsSeason` guard it.
     - **The dataset's column names are not stable, so the importer reads both spellings.**
       `sofifa_id` became `player_id`, `defending_marking` gained `_awareness`, the `team_` prefix
       became `club_`, and the oldest files carry no numeric `league_id` at all — only a name, in
@@ -405,12 +414,13 @@ few simulated seasons.
     alone. Giving each division its own per-year figure would need 156 researched numbers and would
     put that spread at risk for a gain nothing yet measures.
 
-    **The figures in `revenueIndex` are estimates and have never been checked against real data.**
-    `TestOlderEditionsStaySolvent` is written to settle them — it plays a season in the oldest
-    embedded edition and fails in both directions, too many clubs in the red or a giant profiting
-    more than it earned — but it skips while only one edition is embedded, which is the state of
-    the repository. Anyone importing a real old CSV should expect to tune the index against it, and
-    should not read the test's silence as approval.
+    **The figures are estimates, and only the oldest of them has been checked.**
+    `TestOlderEditionsStaySolvent` is what settles them: it plays a season in the oldest embedded
+    edition and fails in both directions, too many clubs in the red or a giant profiting beyond
+    what it earned. It runs for real now that the repository ships 2014/15 to 2022/23, and passes
+    — 32 of 287 clubs in the red after a season, the worst of them €11m down. The years between
+    rest on the index being smooth from one end to the other, which nothing has tested; anyone
+    who moves a middle year should point the test at it rather than trust the endpoints.
 
     A caution learned the expensive way: **synthetic player data cannot validate this.** A
     generated dataset has a far flatter wage and value spread than a real one, so it puts clubs of
