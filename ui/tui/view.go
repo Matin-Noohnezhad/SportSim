@@ -173,23 +173,30 @@ func (m *Model) footer() string {
 
 // ---------------- new game ----------------
 
+// The club picker shows the squads and budgets of the edition being chosen, so
+// a world is decoded per season and kept: moving the cursor up and down the year
+// list must not re-read half a megabyte each time.
 var (
-	previewOnce  sync.Once
-	previewWorld *model.World
+	previewMu     sync.Mutex
+	previewWorlds = map[int]*model.World{}
 )
 
-func loadPreview() *model.World {
-	previewOnce.Do(func() {
-		w, err := game.NewWorld(1)
-		if err == nil {
-			previewWorld = w
-		}
-	})
-	return previewWorld
+func loadPreview(year int) *model.World {
+	previewMu.Lock()
+	defer previewMu.Unlock()
+	if w, ok := previewWorlds[year]; ok {
+		return w
+	}
+	w, err := game.NewWorld(year, 1)
+	if err != nil {
+		return nil
+	}
+	previewWorlds[year] = w
+	return w
 }
 
-func previewLeagues() []*model.League {
-	w := loadPreview()
+func previewLeagues(year int) []*model.League {
+	w := loadPreview(year)
 	if w == nil {
 		return nil
 	}
@@ -200,8 +207,11 @@ func previewLeagues() []*model.League {
 	return out
 }
 
-func previewClubs(leagueID uint16) []*model.Club {
-	w := loadPreview()
+func previewClubs(year int, leagueID uint16) []*model.Club {
+	w := loadPreview(year)
+	if w == nil {
+		return nil
+	}
 	l := w.League(leagueID)
 	if l == nil {
 		return nil
@@ -220,13 +230,35 @@ func (m *Model) viewNewGame() string {
 
 	b.WriteString("  Manager name: " + stBold.Render(m.nameInput+"▏") + "\n\n")
 
-	leagues := previewLeagues()
+	years := game.Editions()
+	if m.pickStage == stageYear {
+		b.WriteString(stHeader.Render("  CHOOSE A SEASON") + "\n")
+		for i, y := range years {
+			w := loadPreview(y)
+			clubs, players := 0, 0
+			if w != nil {
+				clubs, players = len(w.Clubs), len(w.Players)
+			}
+			line := fmt.Sprintf(" %-9s  squads as they stood that summer   %3d clubs  %5d players ",
+				model.SeasonLabel(y), clubs, players)
+			if i == m.pickYear {
+				b.WriteString("  " + stSelected.Render(line) + "\n")
+			} else {
+				b.WriteString("  " + line + "\n")
+			}
+		}
+		b.WriteString("\n  " + stMuted.Render("[↑↓] choose  [enter] continue  type to set your name  [esc] quit") + "\n")
+		return b.String()
+	}
+
+	year := m.startYear()
+	leagues := previewLeagues(year)
 	if leagues == nil {
 		return b.String() + "  " + stBad.Render("Could not load the game database.") + "\n"
 	}
 
-	if m.pickStage == 0 {
-		b.WriteString(stHeader.Render("  CHOOSE A DIVISION") + "\n")
+	if m.pickStage == stageLeague {
+		b.WriteString(stHeader.Render(fmt.Sprintf("  CHOOSE A DIVISION  %s", model.SeasonLabel(year))) + "\n")
 		for i, l := range leagues {
 			line := fmt.Sprintf(" %-16s %-12s tier %d   %2d clubs ", l.Name, l.Country, l.Tier, len(l.ClubIDs))
 			if i == m.pickLeague {
@@ -239,8 +271,9 @@ func (m *Model) viewNewGame() string {
 		return b.String()
 	}
 
-	clubs := previewClubs(uint16(m.pickLeague + 1))
-	b.WriteString(stHeader.Render(fmt.Sprintf("  CHOOSE A CLUB IN THE %s", strings.ToUpper(leagues[m.pickLeague].Name))) + "\n")
+	clubs := previewClubs(year, m.leagueID())
+	b.WriteString(stHeader.Render(fmt.Sprintf("  CHOOSE A CLUB IN THE %s  %s",
+		strings.ToUpper(leagues[m.pickLeague].Name), model.SeasonLabel(year))) + "\n")
 	b.WriteString(stMuted.Render(fmt.Sprintf("  %-26s %5s %10s %12s %10s", "CLUB", "REP", "STADIUM", "BUDGET", "WAGES/WK")) + "\n")
 
 	start := 0

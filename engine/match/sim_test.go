@@ -117,7 +117,7 @@ func TestDeterminism(t *testing.T) {
 
 func loadWorld(t *testing.T) *model.World {
 	t.Helper()
-	d, err := assets.Load()
+	d, err := assets.Load(assets.Latest())
 	if err != nil {
 		t.Fatalf("loading embedded database: %v", err)
 	}

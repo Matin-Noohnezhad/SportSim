@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"sportsim/engine/model"
@@ -38,7 +39,12 @@ import (
 // the European season's draws and brackets. A version-5 save has none of it and
 // would load into a career with no European football at all — and, worse, with
 // clubs whose budgets were set against revenue that included it.
-const formatVersion = 6
+//
+// Version 7 adds the season the career started in. A career can now begin in
+// any edition of the source dataset, and the start year is what names the save
+// file, so a version-6 save could not be written back to the file it came from
+// — two careers at the same club in different eras would collide on one name.
+const formatVersion = 7
 
 // snapshot is the on-disk representation of a career.
 type snapshot struct {
@@ -85,6 +91,19 @@ func Save(g *game.Game, path string) error {
 		return fmt.Errorf("writing save: %w", err)
 	}
 	return os.Rename(tmp, path)
+}
+
+// Path is where a career belongs on disk: the club being managed and the season
+// the career began in.
+//
+// The start year is fixed for the life of the career, never the season being
+// played, so saving keeps overwriting one file rather than leaving a trail of
+// them. It is in the name because a manager may well run Real Madrid from 2016
+// and again from 2020, and those are two careers, not one.
+func Path(g *game.Game) string {
+	w := g.World
+	club := strings.ReplaceAll(w.ClubName(w.HumanClubID), " ", "_")
+	return filepath.Join(Dir(), fmt.Sprintf("%s_%d.sav", club, w.StartYear))
 }
 
 // Load restores a career from disk.

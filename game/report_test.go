@@ -17,7 +17,7 @@ import (
 // the whole point of the type is that a match opened from the fixture list
 // months later reads exactly as it did at full time.
 func TestMatchReport(t *testing.T) {
-	g, err := game.New("Reporter", 1, 909)
+	g, err := game.New("Reporter", 1, game.LatestEdition(), 909)
 	if err != nil {
 		t.Fatal(err)
 	}

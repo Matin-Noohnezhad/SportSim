@@ -17,7 +17,7 @@ import (
 // thing most likely to stall halfway — a round that is never drawn leaves the
 // schedule permanently incomplete and the career never rolls over.
 func TestEuropeanSeason(t *testing.T) {
-	g, err := game.New("Continental", 1, 2026)
+	g, err := game.New("Continental", 1, game.LatestEdition(), 2026)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestEuropeanSeason(t *testing.T) {
 // League is worth more than the Conference League by a distance a manager would
 // notice.
 func TestEuropeanMoneyIsEarned(t *testing.T) {
-	g, err := game.New("Treasurer", 1, 31)
+	g, err := game.New("Treasurer", 1, game.LatestEdition(), 31)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestEuropeanMoneyIsEarned(t *testing.T) {
 
 	// The participation money is paid at the draw and nowhere else, so the world
 	// should hold exactly that much more than it did before the draw was made.
-	fresh, err := game.NewWorld(31)
+	fresh, err := game.NewWorld(game.LatestEdition(), 31)
 	if err != nil {
 		t.Fatal(err)
 	}

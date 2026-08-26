@@ -16,7 +16,7 @@ func TestResourceUse(t *testing.T) {
 	var m0, m1 runtime.MemStats
 
 	start := time.Now()
-	g, err := game.New("Perf", 1, 1)
+	g, err := game.New("Perf", 1, game.LatestEdition(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestResourceUse(t *testing.T) {
 	runtime.ReadMemStats(&m1)
 	runtime.KeepAlive(g)
 
-	t.Logf("embedded database   %d KB", assets.Size()/1024)
+	t.Logf("embedded databases  %d KB across %d season(s)", assets.Size()/1024, len(assets.Editions()))
 	t.Logf("startup (load+fixtures) %v", startup.Round(time.Millisecond))
 	t.Logf("live heap           %.1f MB", float64(m1.HeapAlloc)/(1<<20))
 	t.Logf("full season         %d matches in %v (%.0f matches/sec)",
